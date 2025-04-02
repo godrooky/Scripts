@@ -1,239 +1,317 @@
 --!optimize 2
--- Zeta Ultimate HTTP Loadstring Processor v3.1 (GUI Edition)
--- Features: Professional UI, real-time logging, and one-click execution
+-- Zeta Ultimate HTTP Loadstring Processor v4.0
+-- Features: Advanced sandboxing, async execution, and professional UX
 
 local request = (syn and syn.request) or (http and http.request) or http_request
 if not request then 
-    error("[ZETA CORE] Critical: No HTTP library detected") 
+    error("[ZETA CORE] No HTTP library available") 
 end
 
--- ==== GLOBAL CONFIG ==== --
-local ZetaConfig = {
-    DebugMode = true,
-    MaxRedirects = 3,
-    Timeout = 15,
-    SafeGlobals = { -- Whitelisted functions
-        "print", "warn", "error", "assert",
-        "ipairs", "pairs", "next", "type",
-        "tostring", "tonumber", "select"
-    }
+-- ==== CONSTANTS ==== --
+local MAX_RETRIES = 3
+local REQUEST_TIMEOUT = 15
+local SAFE_GLOBALS = {
+    -- Basic utilities
+    "print", "warn", "error", "assert",
+    "ipairs", "pairs", "next", "type",
+    "tostring", "tonumber", "select",
+    -- Math
+    "math", "table", "string",
+    -- Coroutine (limited)
+    "coroutine.create", "coroutine.resume", "coroutine.yield"
 }
 
--- ==== GUI CREATION ==== --
-local ZetaGUI = Instance.new("ScreenGui")
-ZetaGUI.Name = "ZetaLoaderPro"
-ZetaGUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ZetaGUI.ResetOnSpawn = false
-
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 500, 0, 600)
-MainFrame.Position = UDim2.new(0.5, -250, 0.5, -300)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-MainFrame.BackgroundTransparency = 0.1
-
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 12)
-UICorner.Parent = MainFrame
-
-local UIStroke = Instance.new("UIStroke")
-UIStroke.Color = Color3.fromRGB(60, 60, 80)
-UIStroke.Thickness = 2
-UIStroke.Parent = MainFrame
-
--- Title Bar
-local TitleBar = Instance.new("Frame")
-TitleBar.Size = UDim2.new(1, 0, 0, 40)
-TitleBar.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
-
-local Title = Instance.new("TextLabel")
-Title.Text = "ZETA LOADER PRO v3.1"
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 16
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Size = UDim2.new(1, -40, 1, 0)
-Title.BackgroundTransparency = 1
-
-local CloseButton = Instance.new("ImageButton")
-CloseButton.Image = "rbxassetid://3926305904"
-CloseButton.ImageRectOffset = Vector2.new(284, 4)
-CloseButton.ImageRectSize = Vector2.new(24, 24)
-CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
-CloseButton.Size = UDim2.new(0, 24, 0, 24)
-
--- Input Section
-local InputLabel = Instance.new("TextLabel")
-InputLabel.Text = "Enter script URL:"
-InputLabel.Font = Enum.Font.Gotham
-InputLabel.TextSize = 14
-InputLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-InputLabel.Size = UDim2.new(1, -20, 0, 20)
-InputLabel.Position = UDim2.new(0, 10, 0, 45)
-InputLabel.BackgroundTransparency = 1
-InputLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-local URLBox = Instance.new("TextBox")
-URLBox.PlaceholderText = "https://raw.githubusercontent.com/..."
-URLBox.Size = UDim2.new(1, -20, 0, 35)
-URLBox.Position = UDim2.new(0, 10, 0, 70)
-URLBox.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-URLBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-URLBox.Font = Enum.Font.RobotoMono
-
--- Log Display
-local LogLabel = Instance.new("TextLabel")
-LogLabel.Text = "Execution Log:"
-LogLabel.Font = Enum.Font.Gotham
-LogLabel.TextSize = 14
-LogLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-LogLabel.Size = UDim2.new(1, -20, 0, 20)
-LogLabel.Position = UDim2.new(0, 10, 0, 115)
-LogLabel.BackgroundTransparency = 1
-LogLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-local LogFrame = Instance.new("ScrollingFrame")
-LogFrame.Size = UDim2.new(1, -20, 0, 300)
-LogFrame.Position = UDim2.new(0, 10, 0, 140)
-LogFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
-LogFrame.ScrollBarThickness = 6
-LogFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-
-local LogContent = Instance.new("TextLabel")
-LogContent.Size = UDim2.new(1, 0, 0, 0)
-LogContent.Text = ""
-LogContent.TextColor3 = Color3.fromRGB(220, 220, 220)
-LogContent.Font = Enum.Font.RobotoMono
-LogContent.TextSize = 12
-LogContent.TextXAlignment = Enum.TextXAlignment.Left
-LogContent.TextYAlignment = Enum.TextYAlignment.Top
-LogContent.TextWrapped = true
-LogContent.AutomaticSize = Enum.AutomaticSize.Y
-LogContent.BackgroundTransparency = 1
-LogContent.Parent = LogFrame
-
--- Control Buttons
-local ExecuteButton = Instance.new("TextButton")
-ExecuteButton.Text = "EXECUTE"
-ExecuteButton.Size = UDim2.new(0.4, 0, 0, 40)
-ExecuteButton.Position = UDim2.new(0.1, 0, 1, -60)
-ExecuteButton.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
-
-local ClearButton = Instance.new("TextButton")
-ClearButton.Text = "CLEAR LOG"
-ClearButton.Size = UDim2.new(0.4, 0, 0, 40)
-ClearButton.Position = UDim2.new(0.5, 10, 1, -60)
-ClearButton.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
-
--- ==== LOGGING SYSTEM ==== --
-local function AddLog(message, color)
-    color = color or Color3.fromRGB(220, 220, 220)
-    local timestamp = os.date("[%H:%M:%S]")
-    LogContent.Text = LogContent.Text .. string.format("\n%s %s", timestamp, message)
-    LogFrame.CanvasPosition = Vector2.new(0, LogContent.AbsoluteSize.Y)
-end
-
--- ==== SECURE FETCH ==== --
-local function FetchScript(url)
-    AddLog(string.format("Fetching: %s", url), Color3.fromRGB(100, 150, 255))
-    
-    local response
-    local success, err = pcall(function()
-        response = request({
-            Url = url,
-            Method = "GET",
-            Headers = {
-                ["User-Agent"] = "Zeta-HTTP-Loader/3.1",
-                ["X-Zeta-Session"] = tostring(math.random(1e9, 1e10))
-            },
-            Timeout = ZetaConfig.Timeout
-        })
-    end)
-    
-    if not success then
-        AddLog(string.format("Fetch failed: %s", err), Color3.fromRGB(255, 100, 100))
-        error(err)
-    end
-    
-    if response.StatusCode ~= 200 then
-        AddLog(string.format("HTTP %d: %s", response.StatusCode, response.StatusMessage), 
-              Color3.fromRGB(255, 150, 100))
-        error(response.StatusMessage)
-    end
-    
-    AddLog("Fetch successful", Color3.fromRGB(100, 255, 100))
-    return response.Body
-end
-
--- ==== EXECUTION PIPELINE ==== --
-local function ExecuteScript(code)
-    AddLog("Starting execution pipeline...", Color3.fromRGB(200, 200, 100))
-    
-    -- Create secure environment
+-- ==== SECURE SANDBOX ==== --
+local function CreateIroncladSandbox()
     local sandbox = {}
-    for _, name in ipairs(ZetaConfig.SafeGlobals) do
-        sandbox[name] = _G[name]
+    local protected = {
+        getfenv = function() return sandbox end,
+        setfenv = function() error("setfenv blocked") end,
+        require = function() error("require blocked") end,
+        newproxy = function() error("newproxy blocked") end
+    }
+
+    -- Add whitelisted globals
+    for _, name in ipairs(SAFE_GLOBALS) do
+        local path = name:split(".")
+        local current = _G
+        for i, part in ipairs(path) do
+            current = current[part]
+            if not current then break end
+        end
+        if current then sandbox[name] = current end
     end
+
+    return setmetatable(sandbox, {
+        __index = function(_, k)
+            if protected[k] then return protected[k] end
+            error(string.format("Blocked global access: %s", k))
+        end,
+        __newindex = function(_, k, _)
+            error(string.format("Blocked global write: %s", k))
+        end
+    })
+end
+
+-- ==== ENHANCED HTTP CLIENT ==== --
+local function SecureFetch(url)
+    local attempts = 0
+    local last_error
     
-    -- Load and execute
+    while attempts < MAX_RETRIES do
+        attempts = attempts + 1
+        
+        local success, response = pcall(function()
+            return request({
+                Url = url,
+                Method = "GET",
+                Headers = {
+                    ["User-Agent"] = "Zeta-HTTP-Loader/4.0",
+                    ["X-Zeta-Session"] = tostring(math.random(1e9, 1e10))
+                },
+                Timeout = REQUEST_TIMEOUT
+            })
+        end)
+
+        if not success then
+            last_error = response
+            task.wait(1) -- Backoff before retry
+        elseif response.StatusCode == 200 then
+            return response.Body
+        elseif response.StatusCode >= 300 and response.StatusCode < 400 then
+            url = response.Headers.Location or url
+            last_error = string.format("Redirect to: %s", url)
+        else
+            last_error = string.format("HTTP %d: %s", response.StatusCode, response.StatusMessage)
+        end
+    end
+
+    error(string.format("Failed after %d attempts: %s", MAX_RETRIES, last_error))
+end
+
+-- ==== ASYNC EXECUTION PIPELINE ==== --
+local function ExecuteWithProgress(code, updateCallback)
+    -- Phase 1: Validation
+    updateCallback(10, "Validating syntax...")
+    if code:match("__gc") or code:match("debug%.getregistry") then
+        error("Dangerous patterns detected")
+    end
+
+    -- Phase 2: Compilation
+    updateCallback(30, "Compiling...")
     local fn, err = loadstring(code)
-    if not fn then
-        AddLog(string.format("Compile error: %s", err), Color3.fromRGB(255, 100, 100))
-        error(err)
-    end
-    
-    setfenv(fn, sandbox)
+    if not fn then error(err) end
+
+    -- Phase 3: Sandboxing
+    updateCallback(60, "Preparing environment...")
+    setfenv(fn, CreateIroncladSandbox())
+
+    -- Phase 4: Execution
+    updateCallback(90, "Executing...")
     local success, result = pcall(fn)
-    
-    if not success then
-        AddLog(string.format("Runtime error: %s", result), Color3.fromRGB(255, 100, 100))
-        error(result)
-    end
-    
-    AddLog("Execution completed successfully", Color3.fromRGB(100, 255, 100))
+    if not success then error(result) end
+
+    updateCallback(100, "Complete!")
     return result
 end
 
--- ==== BUTTON HANDLERS ==== --
-ExecuteButton.MouseButton1Click:Connect(function()
-    local url = URLBox.Text
-    if url == "" then return end
-    
-    AddLog("Starting process...", Color3.fromRGB(200, 200, 255))
-    
-    local success, result = pcall(function()
-        local code = FetchScript(url)
-        return ExecuteScript(code)
-    end)
-    
-    if not success then
-        AddLog(string.format("Process failed: %s", result), Color3.fromRGB(255, 100, 100))
+-- ==== PROFESSIONAL GUI ==== --
+local function CreateLoaderGUI()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "ZetaLoaderPro"
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.ResetOnSpawn = false
+
+    -- Main container
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 500, 0, 600)
+    frame.Position = UDim2.new(0.5, -250, 0.5, -300)
+    frame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+    frame.BackgroundTransparency = 0.1
+
+    -- Styling
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = frame
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(60, 60, 80)
+    stroke.Thickness = 2
+    stroke.Parent = frame
+
+    -- Header
+    local header = Instance.new("Frame")
+    header.Size = UDim2.new(1, 0, 0, 40)
+    header.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
+
+    local title = Instance.new("TextLabel")
+    title.Text = "ZETA LOADER PRO v4.0"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 16
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Size = UDim2.new(1, -40, 1, 0)
+    title.BackgroundTransparency = 1
+
+    local closeBtn = Instance.new("ImageButton")
+    closeBtn.Image = "rbxassetid://3926305904"
+    closeBtn.ImageRectOffset = Vector2.new(284, 4)
+    closeBtn.ImageRectSize = Vector2.new(24, 24)
+    closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
+    closeBtn.Size = UDim2.new(0, 24, 0, 24)
+
+    -- Input section
+    local inputLabel = Instance.new("TextLabel")
+    inputLabel.Text = "Script URL:"
+    inputLabel.Font = Enum.Font.Gotham
+    inputLabel.TextSize = 14
+    inputLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    inputLabel.Size = UDim2.new(1, -20, 0, 20)
+    inputLabel.Position = UDim2.new(0, 10, 0, 45)
+    inputLabel.BackgroundTransparency = 1
+    inputLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    local urlBox = Instance.new("TextBox")
+    urlBox.PlaceholderText = "https://raw.githubusercontent.com/..."
+    urlBox.Size = UDim2.new(1, -20, 0, 35)
+    urlBox.Position = UDim2.new(0, 10, 0, 70)
+    urlBox.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    urlBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    urlBox.Font = Enum.Font.RobotoMono
+    urlBox.ClearTextOnFocus = false
+
+    -- Progress display
+    local progressFrame = Instance.new("Frame")
+    progressFrame.Size = UDim2.new(1, -20, 0, 20)
+    progressFrame.Position = UDim2.new(0, 10, 0, 115)
+    progressFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+    progressFrame.BorderSizePixel = 0
+
+    local progressBar = Instance.new("Frame")
+    progressBar.Size = UDim2.new(0, 0, 1, 0)
+    progressBar.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    progressBar.BorderSizePixel = 0
+
+    local progressLabel = Instance.new("TextLabel")
+    progressLabel.Text = "Ready"
+    progressLabel.Size = UDim2.new(1, 0, 1, 0)
+    progressLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    progressLabel.BackgroundTransparency = 1
+    progressLabel.Font = Enum.Font.Gotham
+    progressLabel.TextSize = 12
+
+    -- Log display
+    local logFrame = Instance.new("ScrollingFrame")
+    logFrame.Size = UDim2.new(1, -20, 0, 300)
+    logFrame.Position = UDim2.new(0, 10, 0, 140)
+    logFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+    logFrame.ScrollBarThickness = 6
+    logFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+    local logContent = Instance.new("TextLabel")
+    logContent.Size = UDim2.new(1, 0, 0, 0)
+    logContent.Text = ""
+    logContent.TextColor3 = Color3.fromRGB(220, 220, 220)
+    logContent.Font = Enum.Font.RobotoMono
+    logContent.TextSize = 12
+    logContent.TextXAlignment = Enum.TextXAlignment.Left
+    logContent.TextYAlignment = Enum.TextYAlignment.Top
+    logContent.TextWrapped = true
+    logContent.AutomaticSize = Enum.AutomaticSize.Y
+    logContent.BackgroundTransparency = 1
+
+    -- Control buttons
+    local executeBtn = Instance.new("TextButton")
+    executeBtn.Text = "EXECUTE"
+    executeBtn.Size = UDim2.new(0.4, 0, 0, 40)
+    executeBtn.Position = UDim2.new(0.1, 0, 1, -60)
+    executeBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+    executeBtn.Font = Enum.Font.GothamBold
+
+    local clearBtn = Instance.new("TextButton")
+    clearBtn.Text = "CLEAR LOG"
+    clearBtn.Size = UDim2.new(0.4, 0, 0, 40)
+    clearBtn.Position = UDim2.new(0.5, 10, 1, -60)
+    clearBtn.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+    clearBtn.Font = Enum.Font.Gotham
+
+    -- Assembly
+    header.Parent = frame
+    title.Parent = header
+    closeBtn.Parent = header
+
+    inputLabel.Parent = frame
+    urlBox.Parent = frame
+
+    progressBar.Parent = progressFrame
+    progressLabel.Parent = progressFrame
+    progressFrame.Parent = frame
+
+    logContent.Parent = logFrame
+    logFrame.Parent = frame
+
+    executeBtn.Parent = frame
+    clearBtn.Parent = frame
+
+    frame.Parent = gui
+    gui.Parent = game:GetService("CoreGui")
+
+    -- ==== GUI FUNCTIONALITY ==== --
+    local function AddLog(message, color)
+        color = color or Color3.fromRGB(220, 220, 220)
+        local timestamp = os.date("[%H:%M:%S]")
+        logContent.Text = logContent.Text .. string.format("\n<font color='#%s'>%s %s</font>", 
+            color:ToHex(), timestamp, message)
+        logFrame.CanvasPosition = Vector2.new(0, logContent.AbsoluteSize.Y)
     end
-end)
 
-ClearButton.MouseButton1Click:Connect(function()
-    LogContent.Text = ""
-    AddLog("Log cleared", Color3.fromRGB(200, 200, 200))
-end)
+    local function UpdateProgress(percent, message)
+        progressBar.Size = UDim2.new(percent/100, 0, 1, 0)
+        progressLabel.Text = message or "Processing..."
+    end
 
-CloseButton.MouseButton1Click:Connect(function()
-    ZetaGUI:Destroy()
-end)
+    executeBtn.MouseButton1Click:Connect(function()
+        local url = urlBox.Text
+        
+        -- Validate URL
+        if not url:match("^https?://") then
+            AddLog("Invalid URL format", Color3.fromRGB(255, 100, 100))
+            return
+        end
 
--- ==== FINAL ASSEMBLY ==== --
-TitleBar.Parent = MainFrame
-Title.Parent = TitleBar
-CloseButton.Parent = TitleBar
+        -- Async execution
+        task.spawn(function()
+            AddLog("Starting process...", Color3.fromRGB(200, 200, 255))
+            
+            local success, result = pcall(function()
+                local code = SecureFetch(url)
+                return ExecuteWithProgress(code, UpdateProgress)
+            end)
 
-InputLabel.Parent = MainFrame
-URLBox.Parent = MainFrame
+            if success then
+                AddLog("Execution successful!", Color3.fromRGB(100, 255, 100))
+            else
+                AddLog(string.format("Error: %s", result), Color3.fromRGB(255, 100, 100))
+                UpdateProgress(0, "Failed")
+            end
+        end)
+    end)
 
-LogLabel.Parent = MainFrame
-LogFrame.Parent = MainFrame
+    clearBtn.MouseButton1Click:Connect(function()
+        logContent.Text = ""
+        AddLog("Log cleared", Color3.fromRGB(200, 200, 200))
+    end)
 
-ExecuteButton.Parent = MainFrame
-ClearButton.Parent = MainFrame
+    closeBtn.MouseButton1Click:Connect(function()
+        gui:Destroy()
+    end)
 
-MainFrame.Parent = ZetaGUI
-ZetaGUI.Parent = game:GetService("CoreGui")
+    -- Initialization
+    AddLog("System initialized", Color3.fromRGB(100, 200, 255))
+    return {
+        AddLog = AddLog,
+        UpdateProgress = UpdateProgress
+    }
+end
 
--- Initial log message
-AddLog("Zeta Loader Pro initialized", Color3.fromRGB(0, 200, 200))
+-- ==== MAIN EXECUTION ==== --
+CreateLoaderGUI()
