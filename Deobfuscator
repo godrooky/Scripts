@@ -1,9 +1,11 @@
 --!optimize 2
--- Zeta Universal Deobfuscator v6.0
--- Features: Pattern matching, AST transformation, dynamic analysis, and more
+-- Zeta Deobfuscator GUI v7.0
+-- Features: Input/output boxes, copy button, and real-time deobfuscation
 
+local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
-local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 -- ==== DECODER LIBRARY ==== --
 local DECODERS = {
@@ -27,210 +29,222 @@ local DECODERS = {
         return str:gsub('..', function(cc)
             return string.char(tonumber(cc, 16))
         end)
-    end,
-    
-    unicode = function(str)
-        return str:gsub('\\u(%x%x%x%x)', function(hex)
-            return string.char(tonumber(hex, 16))
-        end)
     end
 }
 
--- ==== PATTERN DATABASE ==== --
-local PATTERNS = {
-    STRING_ENCODING = {
-        patterns = {
-            ['["\'](?:\\x(%x%x)|\\u(%x%x%x%x)|\\(%d%d%d)|\\[abfnrtv\\"\'])["\']'] = function(x, u, o)
-                if x then return string.char(tonumber(x, 16)) end
-                if u then return string.char(tonumber(u, 16)) end
-                if o then return string.char(tonumber(o, 8)) end
-            end,
-            ['=?(%w+)%(%["(%w+)"%]%)'] = function(fn, b64)
-                if DECODERS[fn] then return DECODERS[fn](b64) end
-            end
-        }
-    },
-    
-    VARIABLE_MANGLING = {
-        patterns = {
-            ['_0x(%x+)'] = function(h) return string.format("var_%d", tonumber(h, 16) % 100) end,
-            ['_[%[%]](%d+)'] = function(n) return string.format("v%s", n) end,
-            ['(%w+)%$%$%$(%w+)'] = function(a,b) return a.."_"..b end
-        },
-        transforms = {
-            function(code)
-                local vars = {}
-                return code:gsub('local (%w+)', function(v)
-                    if not vars[v] then
-                        vars[v] = string.format("meaningful_%d", #vars+1)
-                    end
-                    return "local "..vars[v]
-                end)
-            end
-        }
-    },
-    
-    CONTROL_FLOW = {
-        transforms = {
-            function(code)
-                -- Simple control flow unflattening
-                return code:gsub('if %(true%) then(.-)end', '%1')
-                       :gsub('while %(true%) do(.-)end', '%1')
-            end
-        }
-    }
-}
-
--- ==== AST PARSER ==== --
-local function ParseToAST(code)
-    local ast = {type = "Program", body = {}}
-    local stack = {ast.body}
-    local pos = 1
-    
-    while pos <= #code do
-        local chunk, nextPos = code:match('^(.-)([;%{%}])()', pos)
-        pos = nextPos or #code + 1
-        
-        if chunk ~= "" then
-            local node = {
-                type = "Chunk",
-                value = chunk,
-                original = chunk
-            }
-            table.insert(stack[#stack], node)
-        end
-        
-        local delim = code:sub(pos-1, pos-1)
-        if delim == "{" then
-            local block = {type = "Block", body = {}}
-            table.insert(stack[#stack], block)
-            table.insert(stack, block.body)
-        elseif delim == "}" and #stack > 1 then
-            table.remove(stack)
-        end
-    end
-    
-    return ast
-end
-
--- ==== DYNAMIC ANALYZER ==== --
-local function AnalyzeDynamic(code)
-    -- Create secure environment
-    local env = {
-        print = print,
-        string = string,
-        table = table,
-        math = math
-    }
-    
-    -- Execute and capture behavior
-    local output = {}
-    env.print = function(...)
-        table.insert(output, table.concat({...}, "\t"))
-    end
-    
-    local fn, err = loadstring(code)
-    if not fn then return nil, err end
-    
-    setfenv(fn, setmetatable(env, {__index = function() error("Blocked") end}))
-    local success, result = pcall(fn)
-    
-    return {
-        success = success,
-        output = output,
-        result = result
-    }
-end
-
--- ==== DEAD CODE REMOVER ==== --
-local function RemoveDeadCode(ast)
-    local liveCode = {}
-    local function walk(nodes)
-        for _, node in ipairs(nodes) do
-            if node.type == "Chunk" then
-                -- Simple dead code detection (can be enhanced)
-                if not node.value:match('^%s*$') 
-                   and not node.value:match('^%s*%-%-') 
-                   and not node.value:match(';%s*$') then
-                    table.insert(liveCode, node.value)
-                end
-            elseif node.body then
-                walk(node.body)
-            end
-        end
-    end
-    
-    walk(ast.body)
-    return table.concat(liveCode, "\n")
-end
-
--- ==== FUNCTION EXTRACTOR ==== --
-local function ExtractFunctions(code)
-    local functions = {}
-    local counter = 1
-    
-    -- Extract inline functions
-    local newCode = code:gsub('function%((.-)%)%s*(%b{})', function(args, body)
-        local name = "extracted_func_"..counter
-        counter = counter + 1
-        table.insert(functions, string.format("local function %s(%s) %s end", name, args, body))
-        return name.."("..args..")"
+-- ==== DEOBFUSCATION ENGINE ==== --
+local function Deobfuscate(code)
+    -- Phase 1: String Decoding
+    code = code:gsub('["\'](\\x%x%x)+["\']', function(match)
+        return '"'..DECODERS.hex(match:gsub('\\x', ''))..'"'
     end)
     
-    -- Prepend extracted functions
-    if #functions > 0 then
-        newCode = table.concat(functions, "\n").."\n"..newCode
-    end
+    code = code:gsub('=?(%w+)%(%["(%w+)"%]%)', function(fn, b64)
+        if DECODERS[fn] then return '"'..DECODERS[fn](b64)..'"' end
+        return match
+    end)
     
-    return newCode
-end
-
--- ==== CONTROL FLOW RESTORER ==== --
-local function RestoreControlFlow(code)
-    -- Simple if-else restoration
-    code = code:gsub('if%((.-)%)%s*then%s*(.-)%s*else%s*(.-)%s*end', 
-        'if %1 then\n%2\nelse\n%3\nend')
+    -- Phase 2: Variable Renaming
+    local varCount = 0
+    code = code:gsub('_0x(%x+)', function(hex)
+        varCount = varCount + 1
+        return string.format("var_%d", varCount)
+    end)
     
-    -- Loop restoration
-    code = code:gsub('while%((.-)%)%s*do%s*(.-)%s*end', 
-        'while %1 do\n%2\nend')
+    -- Phase 3: Control Flow Simplification
+    code = code:gsub('if %(true%) then(.-)end', '%1')
+           :gsub('while %(true%) do(.-)end', '%1')
+    
+    -- Final Formatting
+    code = code:gsub('%s+', ' '):gsub('([%;%,%)%}])%s*', '%1\n')
+           :gsub('([%(%{%[])%s*', '%1'):gsub('\n%s*\n', '\n')
     
     return code
 end
 
--- ==== COMPLETE DEOBFUSCATION PIPELINE ==== --
-local function FullDeobfuscate(code)
-    -- Phase 1: Static Analysis
-    code = code:gsub(PATTERNS.STRING_ENCODING.patterns)
-    code = code:gsub(PATTERNS.VARIABLE_MANGLING.patterns)
-    
-    -- Phase 2: AST Transformation
-    local ast = ParseToAST(code)
-    for _, transform in ipairs(PATTERNS.VARIABLE_MANGLING.transforms) do
-        ast = transform(ast)
-    end
-    
-    -- Phase 3: Structural Deobfuscation
-    local cleanCode = RemoveDeadCode(ast)
-    cleanCode = ExtractFunctions(cleanCode)
-    cleanCode = RestoreControlFlow(cleanCode)
-    
-    -- Phase 4: Dynamic Validation
-    local analysis = AnalyzeDynamic(cleanCode)
-    if not analysis.success then
-        warn("[ZETA WARNING] Dynamic analysis failed:", analysis.result)
-    end
-    
-    -- Final Formatting
-    cleanCode = cleanCode:gsub('%s+', ' '):gsub('%s*([%;%,%)%}])%s*', '%1')
-               :gsub('([%(%{%[])%s*', '%1'):gsub('\n%s*\n', '\n')
-    
-    return cleanCode, analysis
+-- ==== GUI CREATION ==== --
+local ZetaGUI = Instance.new("ScreenGui")
+ZetaGUI.Name = "ZetaDeobfuscator"
+ZetaGUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ZetaGUI.ResetOnSpawn = false
+
+-- Main Frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 500, 0, 600)
+MainFrame.Position = UDim2.new(0.5, -250, 0.5, -300)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+MainFrame.BackgroundTransparency = 0.1
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 12)
+UICorner.Parent = MainFrame
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(60, 60, 80)
+UIStroke.Thickness = 2
+UIStroke.Parent = MainFrame
+
+-- Title Bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 40)
+TitleBar.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+
+local Title = Instance.new("TextLabel")
+Title.Text = "ZETA DEOBFUSCATOR v7.0"
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 16
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Size = UDim2.new(1, -40, 1, 0)
+Title.BackgroundTransparency = 1
+
+local CloseButton = Instance.new("ImageButton")
+CloseButton.Image = "rbxassetid://3926305904"
+CloseButton.ImageRectOffset = Vector2.new(284, 4)
+CloseButton.ImageRectSize = Vector2.new(24, 24)
+CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
+CloseButton.Size = UDim2.new(0, 24, 0, 24)
+CloseButton.BackgroundTransparency = 1
+
+-- Input Section
+local InputLabel = Instance.new("TextLabel")
+InputLabel.Text = "Obfuscated Script:"
+InputLabel.Font = Enum.Font.Gotham
+InputLabel.TextSize = 14
+InputLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+InputLabel.Size = UDim2.new(1, -20, 0, 20)
+InputLabel.Position = UDim2.new(0, 10, 0, 45)
+InputLabel.BackgroundTransparency = 1
+InputLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local InputBox = Instance.new("TextBox")
+InputBox.PlaceholderText = "Paste obfuscated loadstring here..."
+InputBox.Size = UDim2.new(1, -20, 0, 150)
+InputBox.Position = UDim2.new(0, 10, 0, 70)
+InputBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+InputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+InputBox.Font = Enum.Font.RobotoMono
+InputBox.TextSize = 12
+InputBox.MultiLine = true
+InputBox.TextWrapped = true
+InputBox.ClearTextOnFocus = false
+
+local InputCorner = Instance.new("UICorner")
+InputCorner.CornerRadius = UDim.new(0, 8)
+InputCorner.Parent = InputBox
+
+-- Output Section
+local OutputLabel = Instance.new("TextLabel")
+OutputLabel.Text = "Deobfuscated Script:"
+OutputLabel.Font = Enum.Font.Gotham
+OutputLabel.TextSize = 14
+OutputLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+OutputLabel.Size = UDim2.new(1, -20, 0, 20)
+OutputLabel.Position = UDim2.new(0, 10, 0, 235)
+OutputLabel.BackgroundTransparency = 1
+OutputLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local OutputBox = Instance.new("ScrollingFrame")
+OutputBox.Size = UDim2.new(1, -20, 0, 250)
+OutputBox.Position = UDim2.new(0, 10, 0, 260)
+OutputBox.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+OutputBox.ScrollBarThickness = 6
+OutputBox.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+local OutputContent = Instance.new("TextLabel")
+OutputContent.Size = UDim2.new(1, -10, 0, 0)
+OutputContent.Position = UDim2.new(0, 5, 0, 5)
+OutputContent.Text = ""
+OutputContent.TextColor3 = Color3.fromRGB(220, 220, 220)
+OutputContent.Font = Enum.Font.RobotoMono
+OutputContent.TextSize = 12
+OutputContent.TextXAlignment = Enum.TextXAlignment.Left
+OutputContent.TextYAlignment = Enum.TextYAlignment.Top
+OutputContent.TextWrapped = true
+OutputContent.AutomaticSize = Enum.AutomaticSize.Y
+OutputContent.BackgroundTransparency = 1
+
+-- Buttons
+local DeobfuscateButton = Instance.new("TextButton")
+DeobfuscateButton.Text = "DEOBFUSCATE"
+DeobfuscateButton.Size = UDim2.new(0.45, 0, 0, 40)
+DeobfuscateButton.Position = UDim2.new(0.025, 0, 1, -50)
+DeobfuscateButton.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+DeobfuscateButton.Font = Enum.Font.GothamBold
+
+local CopyButton = Instance.new("TextButton")
+CopyButton.Text = "COPY CLEAN CODE"
+CopyButton.Size = UDim2.new(0.45, 0, 0, 40)
+CopyButton.Position = UDim2.new(0.525, 0, 1, -50)
+CopyButton.BackgroundColor3 = Color3.fromRGB(50, 50, 100)
+CopyButton.Font = Enum.Font.Gotham
+
+local ButtonCorner = Instance.new("UICorner")
+ButtonCorner.CornerRadius = UDim.new(0, 8)
+ButtonCorner.Parent = DeobfuscateButton
+ButtonCorner:Clone().Parent = CopyButton
+
+-- ==== GUI FUNCTIONALITY ==== --
+local function UpdateOutput(text)
+    OutputContent.Text = text
+    OutputBox.CanvasPosition = Vector2.new(0, OutputContent.AbsoluteSize.Y)
 end
 
--- ==== GUI INTEGRATION ==== --
--- [Previous GUI implementation would connect here]
--- Example usage:
--- local obfuscated = 'local _={[1]="SGVsbG8="};print(base64(_[1]))'
--- local clean, analysis = FullDeobfuscate(obfuscated)
--- print(clean) --> local var1 = "Hello"
+local function CopyToClipboard()
+    if #OutputContent.Text > 0 then
+        setclipboard(OutputContent.Text)
+        
+        -- Visual feedback
+        local originalText = CopyButton.Text
+        CopyButton.Text = "COPIED!"
+        task.delay(1, function()
+            CopyButton.Text = originalText
+        end)
+    end
+end
+
+DeobfuscateButton.MouseButton1Click:Connect(function()
+    local input = InputBox.Text
+    if #input < 10 then return end
+    
+    -- Clear previous output
+    UpdateOutput("Deobfuscating...")
+    
+    -- Process in a separate thread to prevent UI freeze
+    task.spawn(function()
+        local success, result = pcall(function()
+            return Deobfuscate(input)
+        end)
+        
+        if success then
+            UpdateOutput(result)
+        else
+            UpdateOutput("Error: "..tostring(result))
+        end
+    end)
+end)
+
+CopyButton.MouseButton1Click:Connect(CopyToClipboard)
+CloseButton.MouseButton1Click:Connect(function()
+    ZetaGUI:Destroy()
+end)
+
+-- ==== UI ASSEMBLY ==== --
+TitleBar.Parent = MainFrame
+Title.Parent = TitleBar
+CloseButton.Parent = TitleBar
+
+InputLabel.Parent = MainFrame
+InputBox.Parent = MainFrame
+
+OutputLabel.Parent = MainFrame
+OutputBox.Parent = MainFrame
+OutputContent.Parent = OutputBox
+
+DeobfuscateButton.Parent = MainFrame
+CopyButton.Parent = MainFrame
+
+MainFrame.Parent = ZetaGUI
+ZetaGUI.Parent = game:GetService("CoreGui")
+
+-- ==== INITIAL MESSAGE ==== --
+UpdateOutput("Paste obfuscated code above and click Deobfuscate")
