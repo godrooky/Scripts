@@ -1,181 +1,163 @@
 --!optimize 2
--- Zeta Final Deobfuscation Engine
--- Methods: Hybrid AST/Bytecode/VM/Entropy Analysis + AI-Guided Reconstruction
+-- Zeta Advanced HTTP Loadstring Processor v2.0
+-- Features: Safe execution, progress tracking, and military-grade reliability
 
-local CoreGui = game:GetService("CoreGui")
-local Memory = getrenv() or getfenv(2)
-local HttpService = game:GetService("HttpService")
+local request = (syn and syn.request) or (http and http.request) or http_request
+if not request then error("HTTP functions not available") end
 
--- ==== CONSTANTS ==== --
-local OBF_PATTERNS = {
-    -- Prometheus
-    ["%$%$.+%$%$"] = function(m) return m:gsub("%$", "") end,
-    ["_G%[[%\"'].-[%\"']%]"] = function(m) return m:match("[%\"'](.-)[%\"']") or "nil" end,
+-- ==== SECURE ENVIRONMENT ==== --
+local ZetaEnv = {
+    print = print,
+    warn = warn,
+    error = error,
+    getgenv = getgenv,
+    loadstring = loadstring,
+    pcall = pcall,
+    setfenv = setfenv,
+    setmetatable = setmetatable
+}
+
+-- ==== PROGRESS TRACKER ==== --
+local function CreateProgressUI()
+    local progressUI = Instance.new("ScreenGui")
+    progressUI.Name = "ZetaProgress"
+    progressUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     
-    -- Moonsec V3
-    ["\\x%x%x%x%x"] = function(m) return string.char(tonumber(m:sub(3), 16)) end,
-    ["::ZM_[A-Z]+::"] = "",
-
-    -- General
-    ["%?%?%?%d+"] = function(m) return math.random(1, 100) end,
-    ["[%a%d]+%^%^%^[%a%d]+"] = function(m) 
-        local parts = m:split("%^%^%^")
-        return parts[1]..parts[2] 
-    end
-}
-
-local VM_SIGNATURES = {
-    "loadstring%(getfenv",
-    "debug%.getinfo",
-    "coroutine%.wrap"
-}
-
--- ==== CORE METHODS ==== --
-local function DeepEntropyScan(code)
-    -- Phase 1: Frequency analysis
-    local freq = {}
-    for i = 1, #code do
-        local c = code:sub(i,i)
-        freq[c] = (freq[c] or 0) + 1
-    end
-
-    -- Phase 2: Dynamic XOR detection
-    local xor_key = nil
-    for i = 1, 255 do
-        local test_dec = code:gsub(".", function(c) 
-            return string.char(c:byte() ~ i) 
-        end)
-        if test_dec:find("function") then
-            xor_key = i
-            break
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 300, 0, 60)
+    frame.Position = UDim2.new(0.5, -150, 0.8, -30)
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    
+    local label = Instance.new("TextLabel")
+    label.Text = "Processing..."
+    label.Size = UDim2.new(1, 0, 0.5, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(0, 0, 0, 10)
+    bar.Position = UDim2.new(0, 0, 0.6, 0)
+    bar.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    bar.BorderSizePixel = 0
+    
+    frame.Parent = progressUI
+    label.Parent = frame
+    bar.Parent = frame
+    progressUI.Parent = game:GetService("CoreGui")
+    
+    return {
+        Update = function(progress, message)
+            label.Text = message or "Processing..."
+            bar.Size = UDim2.new(progress, 0, 0, 10)
+        end,
+        Destroy = function()
+            progressUI:Destroy()
         end
-    end
-
-    -- Phase 3: Apply decryption
-    if xor_key then
-        code = code:gsub(".", function(c) 
-            return string.char(c:byte() ~ xor_key) 
-        end)
-    end
-
-    return code
-end
-
-local function QuantumASTWalk(code)
-    -- Reconstruct code flow
-    local reconstructed = ""
-    local depth = 0
-    local buffer = ""
-
-    for line in code:gmatch("(.-)\n") do
-        if line:match("^%s*function") or line:match("^%s*if") then
-            depth = depth + 1
-            buffer = buffer .. line .. "\n" .. string.rep("    ", depth)
-        elseif line:match("^%s*end") then
-            depth = math.max(0, depth - 1)
-            buffer = buffer .. line .. "\n" .. string.rep("    ", depth)
-        else
-            buffer = buffer .. line .. "\n" .. string.rep("    ", depth)
-        end
-    end
-
-    return buffer
-end
-
-local function VMEmulator(code)
-    -- Detect and emulate VM calls
-    for _, sig in ipairs(VM_SIGNATURES) do
-        if code:find(sig) then
-            code = code:gsub(sig.."%b()", function(match)
-                return "(-- VM CALL NEUTRALIZED: "..match..")"
-            end)
-        end
-    end
-    return code
-end
-
-local function PatternBruteforce(code)
-    -- Apply all known pattern replacements
-    for pattern, replacement in pairs(OBF_PATTERNS) do
-        if type(replacement) == "function" then
-            code = code:gsub(pattern, replacement)
-        else
-            code = code:gsub(pattern, replacement)
-        end
-    end
-    return code
-end
-
-local function FinalReconstruction(code)
-    -- Hybrid deobfuscation pipeline
-    local phases = {
-        DeepEntropyScan,
-        PatternBruteforce,
-        VMEmulator,
-        QuantumASTWalk,
-        function(c) return c:gsub("%s+", " "):gsub("%s*([%(%){}%;,])%s*", "%1") end -- Cleanup
     }
-
-    for _, phase in ipairs(phases) do
-        code = phase(code) or code
-    end
-
-    return code
 end
 
--- ==== GUI ==== --
-local AnnihilatorUI = Instance.new("ScreenGui")
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 700, 0, 600)
-MainFrame.Position = UDim2.new(0.5, -350, 0.5, -300)
-MainFrame.BackgroundColor3 = Color3.fromRGB(5, 0, 5)
-
-local InputBox = Instance.new("TextBox")
-InputBox.Size = UDim2.new(0.9, 0, 0.7, 0)
-InputBox.Position = UDim2.new(0.05, 0, 0.1, 0)
-InputBox.BackgroundColor3 = Color3.fromRGB(10, 0, 15)
-InputBox.TextColor3 = Color3.fromRGB(255, 100, 255)
-InputBox.Font = Enum.Font.RobotoMono
-InputBox.TextSize = 12
-InputBox.MultiLine = true
-
-local OutputFrame = Instance.new("ScrollingFrame")
-OutputFrame.Size = UDim2.new(0.9, 0, 0.7, 0)
-OutputFrame.Position = UDim2.new(0.05, 0, 0.1, 0)
-OutputFrame.BackgroundColor3 = Color3.fromRGB(15, 0, 20)
-OutputFrame.Visible = false
-
-local AnnihilateButton = Instance.new("TextButton")
-AnnihilateButton.Text = "OMNIDESTRUCT"
-AnnihilateButton.Size = UDim2.new(0.6, 0, 0.08, 0)
-AnnihilateButton.Position = UDim2.new(0.2, 0, 0.85, 0)
-AnnihilateButton.BackgroundColor3 = Color3.fromRGB(150, 0, 150)
-AnnihilateButton.Font = Enum.Font.GothamBlack
-
-AnnihilateButton.MouseButton1Click:Connect(function()
-    local cracked = FinalReconstruction(InputBox.Text)
+-- ==== SAFE FETCH ==== --
+local function FetchScript(url)
+    local progress = CreateProgressUI()
+    progress.Update(0.1, "Validating URL...")
     
-    OutputFrame:ClearAllChildren()
-    local Display = Instance.new("TextLabel")
-    Display.Text = cracked
-    Display.Size = UDim2.new(1, 0, 1, 0)
-    Display.TextXAlignment = Enum.TextXAlignment.Left
-    Display.TextYAlignment = Enum.TextYAlignment.Top
-    Display.TextWrapped = true
-    Display.Font = Enum.Font.RobotoMono
-    Display.TextSize = 12
-    Display.TextColor3 = Color3.fromRGB(200, 200, 255)
-    Display.BackgroundTransparency = 1
-    Display.Parent = OutputFrame
+    -- URL validation
+    if not url:match("^https?://") then
+        progress.Destroy()
+        error("Invalid URL protocol")
+    end
     
-    InputBox.Visible = false
-    OutputFrame.Visible = true
-    OutputFrame.CanvasSize = UDim2.new(0, 0, 0, Display.TextBounds.Y + 20)
-end)
+    progress.Update(0.3, "Connecting to server...")
+    
+    local success, response = pcall(function()
+        return request({
+            Url = url,
+            Method = "GET",
+            Headers = {
+                ["User-Agent"] = "Zeta-HTTP-Loader/2.0"
+            }
+        })
+    end)
+    
+    if not success then
+        progress.Destroy()
+        error("Network error: "..response)
+    end
+    
+    progress.Update(0.7, "Processing response...")
+    
+    if response.StatusCode ~= 200 then
+        progress.Destroy()
+        error("HTTP "..response.StatusCode.." - "..response.StatusMessage)
+    end
+    
+    progress.Update(1, "Done!")
+    task.wait(0.5)
+    progress.Destroy()
+    
+    return response.Body
+end
 
--- Assembly
-MainFrame.Parent = AnnihilatorUI
-InputBox.Parent = MainFrame
-OutputFrame.Parent = MainFrame
-AnnihilateButton.Parent = MainFrame
-AnnihilatorUI.Parent = CoreGui
+-- ==== SECURE EXECUTION ==== --
+local function ExecuteSafely(code)
+    local progress = CreateProgressUI()
+    
+    -- Phase 1: Sanitization
+    progress.Update(0.2, "Sanitizing code...")
+    code = code:gsub("__gc", "--GC_REMOVED"):gsub("debug%.", "--DEBUG_REMOVED")
+    
+    -- Phase 2: Compilation
+    progress.Update(0.5, "Compiling...")
+    local fn, err = loadstring(code)
+    if not fn then
+        progress.Destroy()
+        error("Compile error: "..err)
+    end
+    
+    -- Phase 3: Sandboxing
+    progress.Update(0.8, "Initializing sandbox...")
+    setfenv(fn, setmetatable({}, {
+        __index = ZetaEnv,
+        __newindex = function(t, k, v)
+            if ZetaEnv[k] ~= nil then
+                error("Attempt to modify protected ZetaEnv")
+            end
+            rawset(t, k, v)
+        end
+    }))
+    
+    -- Phase 4: Execution
+    progress.Update(0.9, "Executing...")
+    local success, result = pcall(fn)
+    
+    progress.Destroy()
+    
+    if not success then
+        error("Runtime error: "..result)
+    end
+    
+    return result
+end
+
+-- ==== MAIN FUNCTION ==== --
+local function ProcessURL(url)
+    local startTime = os.clock()
+    
+    local success, result = pcall(function()
+        local code = FetchScript(url)
+        return ExecuteSafely(code)
+    end)
+    
+    local elapsed = os.clock() - startTime
+    print(string.format("Process completed in %.2f seconds", elapsed))
+    
+    if not success then
+        warn("[ZETA ERROR] "..result)
+        return false
+    end
+    
+    return true
+end
+
+-- Example usage:
+-- ProcessURL("https://raw.githubusercontent.com/godrooky/Scripts/refs/heads/main/Deobfuscator")
