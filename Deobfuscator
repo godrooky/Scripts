@@ -1,250 +1,455 @@
 --!optimize 2
--- Zeta Deobfuscator GUI v7.0
--- Features: Input/output boxes, copy button, and real-time deobfuscation
+-- Zeta Deobfuscator GUI v8.0
+-- Features: Optimized decoders, robust error handling, and enhanced UI
 
-local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
--- ==== DECODER LIBRARY ==== --
-local DECODERS = {
-    base64 = function(str)
-        local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-        str = str:gsub('[^'..b..'=]', '')
-        return (str:gsub('.', function(x)
-            if (x == '=') then return '' end
-            local r,f='',(b:find(x)-1)
-            for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0') end
-            return r;
-        end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
-            if (#x ~= 8) then return '' end
-            local c=0
-            for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
-            return string.char(c)
-        end))
+--- ==== DECODER MODULE ==== ---
+local Decoders = {
+    -- Optimized Base64 decoder using HttpService when available
+    base64 = function(encoded)
+        if not encoded then return nil, "Empty input" end
+        
+        local success, decoded = pcall(function()
+            if HttpService then
+                return HttpService:JSONDecode('"'..encoded..'"')
+            else
+                local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+                encoded = encoded:gsub('[^'..b..'=]', '')
+                return (encoded:gsub('.', function(x)
+                    if x == '=' then return '' end
+                    local r,f='',(b:find(x)-1
+                    for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0') end
+                    return r
+                end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+                    if #x ~= 8 then return '' end
+                    local c=0
+                    for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
+                    return string.char(c)
+                end))
+            end
+        end)
+        
+        return success and decoded or nil, not success and decoded or nil
     end,
-    
-    hex = function(str)
-        return str:gsub('..', function(cc)
-            return string.char(tonumber(cc, 16))
+
+    -- Enhanced hex decoder with validation
+    hex = function(encoded)
+        if not encoded or #encoded % 2 ~= 0 then
+            return nil, "Invalid hex string"
+        end
+        
+        local result = {}
+        for i=1, #encoded, 2 do
+            local byte = tonumber(encoded:sub(i,i+1), 16)
+            if not byte then return nil, "Invalid hex byte" end
+            table.insert(result, string.char(byte))
+        end
+        
+        return table.concat(result)
+    end,
+
+    -- New URL decoder
+    url = function(encoded)
+        return encoded:gsub('%%(%x%x)', function(hex)
+            return string.char(tonumber(hex, 16))
         end)
     end
 }
 
--- ==== DEOBFUSCATION ENGINE ==== --
-local function Deobfuscate(code)
-    -- Phase 1: String Decoding
-    code = code:gsub('["\'](\\x%x%x)+["\']', function(match)
-        return '"'..DECODERS.hex(match:gsub('\\x', ''))..'"'
-    end)
+--- ==== DEOBFUSCATION ENGINE ==== ---
+local Deobfuscator = {
+    -- Track renamed variables for consistency
+    variableMap = {},
+    lastVarId = 0,
     
-    code = code:gsub('=?(%w+)%(%["(%w+)"%]%)', function(fn, b64)
-        if DECODERS[fn] then return '"'..DECODERS[fn](b64)..'"' end
-        return match
-    end)
-    
-    -- Phase 2: Variable Renaming
-    local varCount = 0
-    code = code:gsub('_0x(%x+)', function(hex)
-        varCount = varCount + 1
-        return string.format("var_%d", varCount)
-    end)
-    
-    -- Phase 3: Control Flow Simplification
-    code = code:gsub('if %(true%) then(.-)end', '%1')
-           :gsub('while %(true%) do(.-)end', '%1')
-    
-    -- Final Formatting
-    code = code:gsub('%s+', ' '):gsub('([%;%,%)%}])%s*', '%1\n')
-           :gsub('([%(%{%[])%s*', '%1'):gsub('\n%s*\n', '\n')
-    
-    return code
-end
-
--- ==== GUI CREATION ==== --
-local ZetaGUI = Instance.new("ScreenGui")
-ZetaGUI.Name = "ZetaDeobfuscator"
-ZetaGUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ZetaGUI.ResetOnSpawn = false
-
--- Main Frame
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 500, 0, 600)
-MainFrame.Position = UDim2.new(0.5, -250, 0.5, -300)
-MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-MainFrame.BackgroundTransparency = 0.1
-
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 12)
-UICorner.Parent = MainFrame
-
-local UIStroke = Instance.new("UIStroke")
-UIStroke.Color = Color3.fromRGB(60, 60, 80)
-UIStroke.Thickness = 2
-UIStroke.Parent = MainFrame
-
--- Title Bar
-local TitleBar = Instance.new("Frame")
-TitleBar.Size = UDim2.new(1, 0, 0, 40)
-TitleBar.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-
-local Title = Instance.new("TextLabel")
-Title.Text = "ZETA DEOBFUSCATOR v7.0"
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 16
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Size = UDim2.new(1, -40, 1, 0)
-Title.BackgroundTransparency = 1
-
-local CloseButton = Instance.new("ImageButton")
-CloseButton.Image = "rbxassetid://3926305904"
-CloseButton.ImageRectOffset = Vector2.new(284, 4)
-CloseButton.ImageRectSize = Vector2.new(24, 24)
-CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
-CloseButton.Size = UDim2.new(0, 24, 0, 24)
-CloseButton.BackgroundTransparency = 1
-
--- Input Section
-local InputLabel = Instance.new("TextLabel")
-InputLabel.Text = "Obfuscated Script:"
-InputLabel.Font = Enum.Font.Gotham
-InputLabel.TextSize = 14
-InputLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-InputLabel.Size = UDim2.new(1, -20, 0, 20)
-InputLabel.Position = UDim2.new(0, 10, 0, 45)
-InputLabel.BackgroundTransparency = 1
-InputLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-local InputBox = Instance.new("TextBox")
-InputBox.PlaceholderText = "Paste obfuscated loadstring here..."
-InputBox.Size = UDim2.new(1, -20, 0, 150)
-InputBox.Position = UDim2.new(0, 10, 0, 70)
-InputBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-InputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-InputBox.Font = Enum.Font.RobotoMono
-InputBox.TextSize = 12
-InputBox.MultiLine = true
-InputBox.TextWrapped = true
-InputBox.ClearTextOnFocus = false
-
-local InputCorner = Instance.new("UICorner")
-InputCorner.CornerRadius = UDim.new(0, 8)
-InputCorner.Parent = InputBox
-
--- Output Section
-local OutputLabel = Instance.new("TextLabel")
-OutputLabel.Text = "Deobfuscated Script:"
-OutputLabel.Font = Enum.Font.Gotham
-OutputLabel.TextSize = 14
-OutputLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-OutputLabel.Size = UDim2.new(1, -20, 0, 20)
-OutputLabel.Position = UDim2.new(0, 10, 0, 235)
-OutputLabel.BackgroundTransparency = 1
-OutputLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-local OutputBox = Instance.new("ScrollingFrame")
-OutputBox.Size = UDim2.new(1, -20, 0, 250)
-OutputBox.Position = UDim2.new(0, 10, 0, 260)
-OutputBox.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-OutputBox.ScrollBarThickness = 6
-OutputBox.AutomaticCanvasSize = Enum.AutomaticSize.Y
-
-local OutputContent = Instance.new("TextLabel")
-OutputContent.Size = UDim2.new(1, -10, 0, 0)
-OutputContent.Position = UDim2.new(0, 5, 0, 5)
-OutputContent.Text = ""
-OutputContent.TextColor3 = Color3.fromRGB(220, 220, 220)
-OutputContent.Font = Enum.Font.RobotoMono
-OutputContent.TextSize = 12
-OutputContent.TextXAlignment = Enum.TextXAlignment.Left
-OutputContent.TextYAlignment = Enum.TextYAlignment.Top
-OutputContent.TextWrapped = true
-OutputContent.AutomaticSize = Enum.AutomaticSize.Y
-OutputContent.BackgroundTransparency = 1
-
--- Buttons
-local DeobfuscateButton = Instance.new("TextButton")
-DeobfuscateButton.Text = "DEOBFUSCATE"
-DeobfuscateButton.Size = UDim2.new(0.45, 0, 0, 40)
-DeobfuscateButton.Position = UDim2.new(0.025, 0, 1, -50)
-DeobfuscateButton.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
-DeobfuscateButton.Font = Enum.Font.GothamBold
-
-local CopyButton = Instance.new("TextButton")
-CopyButton.Text = "COPY CLEAN CODE"
-CopyButton.Size = UDim2.new(0.45, 0, 0, 40)
-CopyButton.Position = UDim2.new(0.525, 0, 1, -50)
-CopyButton.BackgroundColor3 = Color3.fromRGB(50, 50, 100)
-CopyButton.Font = Enum.Font.Gotham
-
-local ButtonCorner = Instance.new("UICorner")
-ButtonCorner.CornerRadius = UDim.new(0, 8)
-ButtonCorner.Parent = DeobfuscateButton
-ButtonCorner:Clone().Parent = CopyButton
-
--- ==== GUI FUNCTIONALITY ==== --
-local function UpdateOutput(text)
-    OutputContent.Text = text
-    OutputBox.CanvasPosition = Vector2.new(0, OutputContent.AbsoluteSize.Y)
-end
-
-local function CopyToClipboard()
-    if #OutputContent.Text > 0 then
-        setclipboard(OutputContent.Text)
+    -- Enhanced string decoder
+    decodeStrings = function(self, code)
+        local replacements = {}
         
-        -- Visual feedback
-        local originalText = CopyButton.Text
-        CopyButton.Text = "COPIED!"
-        task.delay(1, function()
-            CopyButton.Text = originalText
+        -- Find all string literals
+        for match in code:gmatch('(["\'])(.-)%1') do
+            local quote, content = match[1], match[2]
+            local decoded, err
+            
+            -- Hex sequences
+            if content:match('\\x%x%x') then
+                decoded, err = Decoders.hex(content:gsub('\\x', ''))
+            -- Base64 encoded
+            elseif content:match('^[A-Za-z0-9+/]+=?=?$') then
+                decoded, err = Decoders.base64(content)
+            end
+            
+            if decoded then
+                table.insert(replacements, {
+                    original = quote..content..quote,
+                    replacement = quote..decoded..quote
+                })
+            end
+        end
+        
+        -- Apply all replacements
+        for _, rep in ipairs(replacements) do
+            code = code:gsub(rep.original, rep.replacement, 1)
+        end
+        
+        return code
+    end,
+    
+    -- Improved variable renaming
+    renameVariables = function(self, code)
+        -- Reset mapping for new deobfuscation
+        self.variableMap = {}
+        self.lastVarId = 0
+        
+        -- Pattern 1: _0x1a2b3c style
+        code = code:gsub('_0x(%x+)', function(hex)
+            if not self.variableMap[hex] then
+                self.lastVarId = self.lastVarId + 1
+                self.variableMap[hex] = string.format("var_%d", self.lastVarId)
+            end
+            return self.variableMap[hex]
+        end)
+        
+        -- Pattern 2: _[1] array access
+        code = code:gsub('_%[(%d+)%]', function(num)
+            return string.format("arr_%s", num)
+        end)
+        
+        return code
+    end,
+    
+    -- Enhanced control flow cleanup
+    simplifyControlFlow = function(self, code)
+        -- Remove dead if(true) blocks
+        code = code:gsub('if%s*%(%s*true%s*%)%s*then(.-)end', '%1')
+        
+        -- Simplify while(true) loops
+        code = code:gsub('while%s*%(%s*true%s*%)%s*do(.-)end', '%1')
+        
+        -- Remove empty statements
+        code = code:gsub(';%s*;', ';')
+               :gsub('%s*;%s*$', '')
+        
+        return code
+    end,
+    
+    -- Main deobfuscation pipeline
+    process = function(self, code)
+        if type(code) ~= "string" or #code < 10 then
+            return nil, "Invalid input code"
+        end
+        
+        local steps = {
+            {name = "String Decoding", func = self.decodeStrings},
+            {name = "Variable Renaming", func = self.renameVariables},
+            {name = "Control Flow Simplification", func = self.simplifyControlFlow}
+        }
+        
+        for _, step in ipairs(steps) do
+            local success, result = pcall(step.func, self, code)
+            if not success then
+                return nil, string.format("Failed at %s: %s", step.name, result)
+            end
+            code = result
+        end
+        
+        -- Final formatting
+        code = code:gsub('%s+', ' ')
+                  :gsub('([%;%,%)%}])%s*', '%1\n')
+                  :gsub('([%(%{%[])%s*', '%1')
+                  :gsub('\n%s*\n', '\n')
+        
+        return code
+    end
+}
+
+--- ==== UI MODULE ==== ---
+local UIBuilder = {
+    createWindow = function()
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "ZetaDeobfuscator"
+        gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        gui.ResetOnSpawn = false
+        
+        local mainFrame = self.createFrame("MainWindow", UDim2.new(0, 500, 0, 600), {
+            BackgroundColor3 = Color3.fromRGB(20, 20, 30),
+            Position = UDim2.new(0.5, -250, 0.5, -300)
+        }, gui)
+        
+        self.createTitleBar(mainFrame)
+        
+        local inputSection = self.createInputSection(mainFrame)
+        local outputSection = self.createOutputSection(mainFrame)
+        self.createActionButtons(mainFrame, inputSection.inputBox, outputSection.outputContent)
+        
+        return gui
+    end,
+    
+    createFrame = function(name, size, props, parent)
+        local frame = Instance.new("Frame")
+        frame.Name = name
+        frame.Size = size
+        
+        for prop, value in pairs(props) do
+            frame[prop] = value
+        end
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 12)
+        corner.Parent = frame
+        
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(60, 60, 80)
+        stroke.Thickness = 2
+        stroke.Parent = frame
+        
+        if parent then frame.Parent = parent end
+        return frame
+    end,
+    
+    createTitleBar = function(parent)
+        local titleBar = Instance.new("Frame")
+        titleBar.Name = "TitleBar"
+        titleBar.Size = UDim2.new(1, 0, 0, 40)
+        titleBar.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+        titleBar.Parent = parent
+        
+        local title = Instance.new("TextLabel")
+        title.Name = "Title"
+        title.Text = "ZETA DEOBFUSCATOR v8.0"
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 16
+        title.TextColor3 = Color3.fromRGB(255, 255, 255)
+        title.Size = UDim2.new(1, -40, 1, 0)
+        title.BackgroundTransparency = 1
+        title.Parent = titleBar
+        
+        local closeBtn = Instance.new("ImageButton")
+        closeBtn.Name = "CloseButton"
+        closeBtn.Image = "rbxassetid://3926305904"
+        closeBtn.ImageRectOffset = Vector2.new(284, 4)
+        closeBtn.ImageRectSize = Vector2.new(24, 24)
+        closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
+        closeBtn.Size = UDim2.new(0, 24, 0, 24)
+        closeBtn.BackgroundTransparency = 1
+        closeBtn.Parent = titleBar
+        
+        closeBtn.MouseButton1Click:Connect(function()
+            parent:Destroy()
+        end)
+        
+        -- Draggable window
+        local dragging, dragInput, dragStart, startPos
+        titleBar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = true
+                dragStart = input.Position
+                startPos = parent.Position
+                
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end)
+            end
+        end)
+        
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = input.Position - dragStart
+                parent.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, 
+                                          startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
+        end)
+    end,
+    
+    createInputSection = function(parent)
+        local container = Instance.new("Frame")
+        container.Name = "InputSection"
+        container.Size = UDim2.new(1, -20, 0, 180)
+        container.Position = UDim2.new(0, 10, 0, 45)
+        container.BackgroundTransparency = 1
+        container.Parent = parent
+        
+        local label = Instance.new("TextLabel")
+        label.Name = "InputLabel"
+        label.Text = "Obfuscated Script:"
+        label.Font = Enum.Font.Gotham
+        label.TextSize = 14
+        label.TextColor3 = Color3.fromRGB(200, 200, 200)
+        label.Size = UDim2.new(1, 0, 0, 20)
+        label.BackgroundTransparency = 1
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = container
+        
+        local inputBox = Instance.new("TextBox")
+        inputBox.Name = "InputBox"
+        inputBox.PlaceholderText = "Paste obfuscated loadstring here..."
+        inputBox.Size = UDim2.new(1, 0, 1, -25)
+        inputBox.Position = UDim2.new(0, 0, 0, 25)
+        inputBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+        inputBox.Font = Enum.Font.RobotoMono
+        inputBox.TextSize = 12
+        inputBox.MultiLine = true
+        inputBox.TextWrapped = true
+        inputBox.ClearTextOnFocus = false
+        inputBox.Parent = container
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = inputBox
+        
+        return {
+            container = container,
+            inputBox = inputBox
+        }
+    end,
+    
+    createOutputSection = function(parent)
+        local container = Instance.new("Frame")
+        container.Name = "OutputSection"
+        container.Size = UDim2.new(1, -20, 0, 250)
+        container.Position = UDim2.new(0, 10, 0, 235)
+        container.BackgroundTransparency = 1
+        container.Parent = parent
+        
+        local label = Instance.new("TextLabel")
+        label.Name = "OutputLabel"
+        label.Text = "Deobfuscated Script:"
+        label.Font = Enum.Font.Gotham
+        label.TextSize = 14
+        label.TextColor3 = Color3.fromRGB(200, 200, 200)
+        label.Size = UDim2.new(1, 0, 0, 20)
+        label.BackgroundTransparency = 1
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = container
+        
+        local scrollFrame = Instance.new("ScrollingFrame")
+        scrollFrame.Name = "OutputScroll"
+        scrollFrame.Size = UDim2.new(1, 0, 1, -25)
+        scrollFrame.Position = UDim2.new(0, 0, 0, 25)
+        scrollFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+        scrollFrame.ScrollBarThickness = 6
+        scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        scrollFrame.Parent = container
+        
+        local outputContent = Instance.new("TextLabel")
+        outputContent.Name = "OutputContent"
+        outputContent.Size = UDim2.new(1, -10, 0, 0)
+        outputContent.Position = UDim2.new(0, 5, 0, 5)
+        outputContent.Text = ""
+        outputContent.TextColor3 = Color3.fromRGB(220, 220, 220)
+        outputContent.Font = Enum.Font.RobotoMono
+        outputContent.TextSize = 12
+        outputContent.TextXAlignment = Enum.TextXAlignment.Left
+        outputContent.TextYAlignment = Enum.TextYAlignment.Top
+        outputContent.TextWrapped = true
+        outputContent.AutomaticSize = Enum.AutomaticSize.Y
+        outputContent.BackgroundTransparency = 1
+        outputContent.Parent = scrollFrame
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = scrollFrame
+        
+        return {
+            container = container,
+            outputContent = outputContent
+        }
+    end,
+    
+    createActionButtons = function(parent, inputBox, outputContent)
+        local container = Instance.new("Frame")
+        container.Name = "ButtonContainer"
+        container.Size = UDim2.new(1, -20, 0, 40)
+        container.Position = UDim2.new(0, 10, 1, -50)
+        container.BackgroundTransparency = 1
+        container.Parent = parent
+        
+        local deobfuscateBtn = Instance.new("TextButton")
+        deobfuscateBtn.Name = "DeobfuscateButton"
+        deobfuscateBtn.Text = "DEOBFUSCATE"
+        deobfuscateBtn.Size = UDim2.new(0.45, 0, 1, 0)
+        deobfuscateBtn.Position = UDim2.new(0, 0, 0, 0)
+        deobfuscateBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+        deobfuscateBtn.Font = Enum.Font.GothamBold
+        deobfuscateBtn.TextSize = 14
+        deobfuscateBtn.Parent = container
+        
+        local copyBtn = Instance.new("TextButton")
+        copyBtn.Name = "CopyButton"
+        copyBtn.Text = "COPY CLEAN CODE"
+        copyBtn.Size = UDim2.new(0.45, 0, 1, 0)
+        copyBtn.Position = UDim2.new(0.55, 0, 0, 0)
+        copyBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 100)
+        copyBtn.Font = Enum.Font.Gotham
+        copyBtn.TextSize = 14
+        copyBtn.Parent = container
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = deobfuscateBtn
+        corner:Clone().Parent = copyBtn
+        
+        -- Button functionality
+        local function updateOutput(text)
+            outputContent.Text = text
+            scrollFrame = outputContent.Parent
+            scrollFrame.CanvasPosition = Vector2.new(0, outputContent.AbsoluteSize.Y)
+        end
+        
+        deobfuscateBtn.MouseButton1Click:Connect(function()
+            local code = inputBox.Text
+            if #code < 10 then
+                updateOutput("Error: Input too short")
+                return
+            end
+            
+            updateOutput("Deobfuscating...")
+            
+            -- Visual feedback
+            local originalText = deobfuscateBtn.Text
+            deobfuscateBtn.Text = "PROCESSING..."
+            
+            task.spawn(function()
+                local cleanCode, err = Deobfuscator:process(code)
+                
+                if cleanCode then
+                    updateOutput(cleanCode)
+                else
+                    updateOutput("Error: "..tostring(err))
+                end
+                
+                deobfuscateBtn.Text = originalText
+            end)
+        end)
+        
+        copyBtn.MouseButton1Click:Connect(function()
+            if #outputContent.Text > 0 then
+                setclipboard(outputContent.Text)
+                
+                -- Visual feedback
+                local originalText = copyBtn.Text
+                copyBtn.Text = "COPIED!"
+                task.delay(1.5, function()
+                    copyBtn.Text = originalText
+                end)
+            end
         end)
     end
-end
+}
 
-DeobfuscateButton.MouseButton1Click:Connect(function()
-    local input = InputBox.Text
-    if #input < 10 then return end
-    
-    -- Clear previous output
-    UpdateOutput("Deobfuscating...")
-    
-    -- Process in a separate thread to prevent UI freeze
-    task.spawn(function()
-        local success, result = pcall(function()
-            return Deobfuscate(input)
-        end)
-        
-        if success then
-            UpdateOutput(result)
-        else
-            UpdateOutput("Error: "..tostring(result))
-        end
-    end)
-end)
-
-CopyButton.MouseButton1Click:Connect(CopyToClipboard)
-CloseButton.MouseButton1Click:Connect(function()
-    ZetaGUI:Destroy()
-end)
-
--- ==== UI ASSEMBLY ==== --
-TitleBar.Parent = MainFrame
-Title.Parent = TitleBar
-CloseButton.Parent = TitleBar
-
-InputLabel.Parent = MainFrame
-InputBox.Parent = MainFrame
-
-OutputLabel.Parent = MainFrame
-OutputBox.Parent = MainFrame
-OutputContent.Parent = OutputBox
-
-DeobfuscateButton.Parent = MainFrame
-CopyButton.Parent = MainFrame
-
-MainFrame.Parent = ZetaGUI
+--- ==== MAIN EXECUTION ==== ---
+local ZetaGUI = UIBuilder.createWindow()
 ZetaGUI.Parent = game:GetService("CoreGui")
 
--- ==== INITIAL MESSAGE ==== --
-UpdateOutput("Paste obfuscated code above and click Deobfuscate")
+-- Initial message
+local output = ZetaGUI:FindFirstChild("MainWindow", true)
+                    :FindFirstChild("OutputSection", true)
+                    :FindFirstChild("OutputScroll", true)
+                    :FindFirstChild("OutputContent", true)
+output.Text = "Paste obfuscated code above and click Deobfuscate"
