@@ -1,18 +1,37 @@
 --!optimize 2
--- Zeta Deobfuscator GUI v9.0 (Mobile Edition)
--- Features: Military-grade error handling, mobile optimization, adaptive UI
+-- Zeta Deobfuscator GUI v9.1 (Ultimate Modular Edition)
+-- Features: Military-grade error handling, mobile optimization, modular UI, secure processing
 
--- Localize frequently used services
+--- ==== MODULE IMPORTS ==== ---
 local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
 local TextService = game:GetService("TextService")
 
+--- ==== GLOBAL CONFIG ==== ---
+local CONFIG = {
+    MAX_LOGS = 200,
+    MOBILE_SCALE = 0.85,
+    DESKTOP_SCALE = 1.0,
+    UI_COLORS = {
+        background = Color3.fromRGB(20, 20, 30),
+        panel = Color3.fromRGB(25, 25, 35),
+        accent = Color3.fromRGB(0, 150, 255),
+        text = Color3.fromRGB(220, 220, 220),
+        error = Color3.fromRGB(255, 50, 50),
+        success = Color3.fromRGB(50, 255, 50)
+    },
+    FONTS = {
+        title = Enum.Font.GothamBold,
+        body = Enum.Font.Gotham,
+        code = Enum.Font.RobotoMono
+    }
+}
+
 --- ==== LOGGER MODULE ==== ---
 local Logger = {
     logs = {},
-    maxLogs = 200,
     
     add = function(self, message, level)
         level = level or "INFO"
@@ -20,7 +39,7 @@ local Logger = {
         local entry = string.format("%s [%s] %s", timestamp, level, message)
         
         -- Rotate logs if exceeding maximum
-        if #self.logs >= self.maxLogs then
+        if #self.logs >= CONFIG.MAX_LOGS then
             table.remove(self.logs, 1)
         end
         table.insert(self.logs, entry)
@@ -30,38 +49,72 @@ local Logger = {
     
     flush = function(self)
         return table.concat(self.logs, "\n")
+    end,
+    
+    clear = function(self)
+        self.logs = {}
     end
 }
 
---- ==== OPTIMIZED DECODER MODULE ==== ---
+--- ==== UTILITY FUNCTIONS ==== ---
+local Utils = {
+    -- Safely execute a function with error handling
+    try = function(func, ...)
+        local success, result = pcall(func, ...)
+        if not success then
+            Logger:add("Runtime error: " .. tostring(result), "ERROR")
+            return nil, result
+        end
+        return result
+    end,
+
+    -- Validate and sanitize input strings
+    sanitizeInput = function(input)
+        if type(input) ~= "string" then return nil, "Invalid input type" end
+        -- Prevent potential injection (if processing external data)
+        return (input:gsub("[%c%z]", "")) -- Remove control chars
+    end,
+
+    -- Check if platform is mobile
+    isMobile = function()
+        return UserInputService.TouchEnabled
+    end,
+
+    -- Get dynamic UI scale factor
+    getUIScale = function()
+        return Utils.isMobile() and CONFIG.MOBILE_SCALE or CONFIG.DESKTOP_SCALE
+    end
+}
+
+--- ==== DECODER MODULE ==== ---
 local Decoders = {
-    -- Ultra-efficient Base64 decoder using lookup tables
+    -- Cache Base64 lookup table for performance
+    _b64Lookup = {
+        ['A']=0,['B']=1,['C']=2,['D']=3,['E']=4,['F']=5,['G']=6,['H']=7,
+        ['I']=8,['J']=9,['K']=10,['L']=11,['M']=12,['N']=13,['O']=14,['P']=15,
+        ['Q']=16,['R']=17,['S']=18,['T']=19,['U']=20,['V']=21,['W']=22,['X']=23,
+        ['Y']=24,['Z']=25,['a']=26,['b']=27,['c']=28,['d']=29,['e']=30,['f']=31,
+        ['g']=32,['h']=33,['i']=34,['j']=35,['k']=36,['l']=37,['m']=38,['n']=39,
+        ['o']=40,['p']=41,['q']=42,['r']=43,['s']=44,['t']=45,['u']=46,['v']=47,
+        ['w']=48,['x']=49,['y']=50,['z']=51,['0']=52,['1']=53,['2']=54,['3']=55,
+        ['4']=56,['5']=57,['6']=58,['7']=59,['8']=60,['9']=61,['+']=62,['/']=63
+    },
+
+    -- Base64 decoder with validation
     base64 = function(encoded)
         if not encoded or type(encoded) ~= "string" then
             return nil, "Invalid input type"
         end
-        
-        -- Cache the decode table
-        local b64 = {
-            ['A']=0,['B']=1,['C']=2,['D']=3,['E']=4,['F']=5,['G']=6,['H']=7,
-            ['I']=8,['J']=9,['K']=10,['L']=11,['M']=12,['N']=13,['O']=14,['P']=15,
-            ['Q']=16,['R']=17,['S']=18,['T']=19,['U']=20,['V']=21,['W']=22,['X']=23,
-            ['Y']=24,['Z']=25,['a']=26,['b']=27,['c']=28,['d']=29,['e']=30,['f']=31,
-            ['g']=32,['h']=33,['i']=34,['j']=35,['k']=36,['l']=37,['m']=38,['n']=39,
-            ['o']=40,['p']=41,['q']=42,['r']=43,['s']=44,['t']=45,['u']=46,['v']=47,
-            ['w']=48,['x']=49,['y']=50,['z']=51,['0']=52,['1']=53,['2']=54,['3']=55,
-            ['4']=56,['5']=57,['6']=58,['7']=59,['8']=60,['9']=61,['+']=62,['/']=63
-        }
         
         encoded = encoded:gsub("[^%w%+/=]", "")
         local result = {}
         local i = 1
         
         while i <= #encoded do
-            local c1 = b64[encoded:sub(i,i)] or 0
-            local c2 = b64[encoded:sub(i+1,i+1)] or 0
-            local c3 = b64[encoded:sub(i+2,i+2)] or 0
-            local c4 = b64[encoded:sub(i+3,i+3)] or 0
+            local c1 = Decoders._b64Lookup[encoded:sub(i,i)] or 0
+            local c2 = Decoders._b64Lookup[encoded:sub(i+1,i+1)] or 0
+            local c3 = Decoders._b64Lookup[encoded:sub(i+2,i+2)] or 0
+            local c4 = Decoders._b64Lookup[encoded:sub(i+3,i+3)] or 0
             
             table.insert(result, string.char(
                 bit32.bor(bit32.lshift(c1, 2), bit32.rshift(c2, 4))
@@ -84,8 +137,8 @@ local Decoders = {
         
         return table.concat(result)
     end,
-    
-    -- Optimized hex decoder with validation
+
+    -- Hex decoder with validation
     hex = function(encoded)
         if not encoded or #encoded % 2 ~= 0 then
             return nil, "Invalid hex string length"
@@ -109,29 +162,22 @@ local Deobfuscator = {
     variableMap = {},
     lastVarId = 0,
     
-    -- Enhanced error handling for string decoding
+    -- Decode obfuscated strings
     decodeStrings = function(self, code)
         local replacements = {}
-        local success, err
         
         -- Process all string literals
         for quoted in code:gmatch('(["\'])(.-)%1') do
             local quote, content = quoted[1], quoted[2]
-            local decoded
+            local decoded, err
             
-            -- Hex detection (\xAB)
+            -- Hex detection
             if content:find("\\x%x%x") then
                 decoded, err = Decoders.hex(content:gsub("\\x", ""))
-                if not decoded then
-                    Logger:add("Hex decode failed: "..err, "WARN")
-                end
             
             -- Base64 detection
             elseif content:match("^[A-Za-z0-9+/]+=?=?$") then
                 decoded, err = Decoders.base64(content)
-                if not decoded then
-                    Logger:add("Base64 decode failed: "..err, "WARN")
-                end
             end
             
             if decoded then
@@ -139,10 +185,12 @@ local Deobfuscator = {
                     original = quote..content..quote,
                     replacement = quote..decoded..quote
                 })
+            elseif err then
+                Logger:add("Decode failed: "..err, "WARN")
             end
         end
         
-        -- Apply replacements safely
+        -- Apply replacements
         for _, rep in ipairs(replacements) do
             code = code:gsub(rep.original:gsub("%p", "%%%0"), rep.replacement, 1)
         end
@@ -150,7 +198,7 @@ local Deobfuscator = {
         return code
     end,
     
-    -- Improved variable renaming with tracking
+    -- Rename variables systematically
     renameVariables = function(self, code)
         self.variableMap = {}
         self.lastVarId = 0
@@ -173,7 +221,15 @@ local Deobfuscator = {
         return code
     end,
     
-    -- Main processing with error protection
+    -- Format code for readability
+    formatCode = function(self, code)
+        return code:gsub("%s+", " ")                -- Collapse whitespace
+                  :gsub("%s*([%;%,%)%}])%s*", "%1") -- Clean right side
+                  :gsub("([%(%{%[])%s*", "%1")      -- Clean left side
+                  :gsub("\n%s*\n", "\n")            -- Remove empty lines
+    end,
+    
+    -- Main processing pipeline
     process = function(self, code)
         if type(code) ~= "string" then
             return nil, "Input must be a string"
@@ -183,104 +239,49 @@ local Deobfuscator = {
             return nil, "Input too short to be obfuscated code"
         end
         
+        -- Processing steps with error handling
         local steps = {
             {name = "String Decoding", func = self.decodeStrings},
-            {name = "Variable Renaming", func = self.renameVariables}
+            {name = "Variable Renaming", func = self.renameVariables},
+            {name = "Code Formatting", func = self.formatCode}
         }
         
         for _, step in ipairs(steps) do
-            local success, result = xpcall(
-                step.func,
-                function(err)
-                    return string.format("%s failed: %s", step.name, err)
-                end,
-                self, code
-            )
-            
+            local success, result = Utils.try(step.func, self, code)
             if not success then
-                Logger:add(result, "ERROR")
+                Logger:add(step.name .. " failed: " .. result, "ERROR")
                 return nil, result
             end
-            
             code = result
-            Logger:add(string.format("%s completed", step.name), "DEBUG")
         end
-        
-        -- Final formatting passes
-        code = self:formatCode(code)
-        
-        return code
-    end,
-    
-    -- Optimized code formatting
-    formatCode = function(self, code)
-        -- Multi-pass formatting for better results
-        code = code:gsub("%s+", " ")                -- Collapse whitespace
-                  :gsub("%s*([%;%,%)%}])%s*", "%1") -- Clean right side
-                  :gsub("([%(%{%[])%s*", "%1")      -- Clean left side
-                  :gsub("\n%s*\n", "\n")            -- Remove empty lines
         
         return code
     end
 }
 
---- ==== MOBILE-OPTIMIZED UI BUILDER ==== ---
-local UIBuilder = {
-    -- Cache common UI properties
-    colors = {
-        background = Color3.fromRGB(20, 20, 30),
-        panel = Color3.fromRGB(25, 25, 35),
-        accent = Color3.fromRGB(0, 150, 255),
-        text = Color3.fromRGB(220, 220, 220)
-    },
-    
-    -- Detect mobile platform
-    isMobile = UserInputService.TouchEnabled,
-    
-    -- Dynamic sizing for mobile
-    getScreenScale = function(self)
-        return self.isMobile and 0.8 or 1.0
-    end,
-    
-    createWindow = function(self)
-        local screenScale = self:getScreenScale()
-        local gui = Instance.new("ScreenGui")
-        gui.Name = "ZetaDeobfuscatorMobile"
-        gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-        gui.ResetOnSpawn = false
-        
-        local mainFrame = self:createFrame("MainWindow", UDim2.new(0, 450 * screenScale, 0, 650 * screenScale), {
-            BackgroundColor3 = self.colors.background,
-            Position = UDim2.new(0.5, -225 * screenScale, 0.5, -325 * screenScale),
-            AnchorPoint = Vector2.new(0.5, 0.5)
-        }, gui)
-        
-        self:createTitleBar(mainFrame)
-        
-        local inputSection = self:createInputSection(mainFrame)
-        local outputSection = self:createOutputSection(mainFrame)
-        self:createActionButtons(mainFrame, inputSection.inputBox, outputSection.outputContent)
-        
-        return gui
-    end,
-    
-    createFrame = function(self, name, size, props, parent)
+--- ==== UI COMPONENTS MODULE ==== ---
+local UIComponents = {
+    -- Create a basic frame with common properties
+    createFrame = function(name, size, position, parent, additionalProps)
         local frame = Instance.new("Frame")
         frame.Name = name
         frame.Size = size
+        frame.Position = position
         
-        -- Apply properties efficiently
-        for prop, value in pairs(props) do
-            frame[prop] = value
+        -- Apply additional properties if provided
+        if additionalProps then
+            for prop, value in pairs(additionalProps) do
+                frame[prop] = value
+            end
         end
         
-        -- Reusable UI elements
+        -- Standard styling
         local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 12)
+        corner.CornerRadius = UDim.new(0, 8)
         corner.Parent = frame
         
         local stroke = Instance.new("UIStroke")
-        stroke.Color = self.colors.panel
+        stroke.Color = CONFIG.UI_COLORS.panel
         stroke.Thickness = 2
         stroke.Parent = frame
         
@@ -291,22 +292,152 @@ local UIBuilder = {
         return frame
     end,
     
+    -- Create a text label
+    createLabel = function(name, text, size, position, parent, textSize, font)
+        local label = Instance.new("TextLabel")
+        label.Name = name
+        label.Text = text
+        label.Size = size
+        label.Position = position
+        label.BackgroundTransparency = 1
+        label.TextColor3 = CONFIG.UI_COLORS.text
+        label.TextSize = textSize or 14
+        label.Font = font or CONFIG.FONTS.body
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        
+        if parent then
+            label.Parent = parent
+        end
+        
+        return label
+    end,
+    
+    -- Create a button with click handler
+    createButton = function(name, text, size, position, parent, onClick)
+        local button = Instance.new("TextButton")
+        button.Name = name
+        button.Text = text
+        button.Size = size
+        button.Position = position
+        button.BackgroundColor3 = CONFIG.UI_COLORS.accent
+        button.TextColor3 = Color3.new(1, 1, 1)
+        button.Font = CONFIG.FONTS.body
+        button.TextSize = 14
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = button
+        
+        if onClick then
+            button.MouseButton1Click:Connect(function()
+                Utils.try(onClick)
+            end)
+        end
+        
+        if parent then
+            button.Parent = parent
+        end
+        
+        return button
+    end,
+    
+    -- Create a text input box
+    createTextBox = function(name, placeholder, size, position, parent)
+        local textBox = Instance.new("TextBox")
+        textBox.Name = name
+        textBox.PlaceholderText = placeholder
+        textBox.Size = size
+        textBox.Position = position
+        textBox.BackgroundColor3 = CONFIG.UI_COLORS.panel
+        textBox.TextColor3 = CONFIG.UI_COLORS.text
+        textBox.Font = CONFIG.FONTS.code
+        textBox.TextSize = 12
+        textBox.MultiLine = true
+        textBox.TextWrapped = true
+        textBox.ClearTextOnFocus = false
+        
+        Instance.new("UICorner", textBox).CornerRadius = UDim.new(0, 8)
+        
+        if parent then
+            textBox.Parent = parent
+        end
+        
+        return textBox
+    end
+}
+
+--- ==== MAIN UI MODULE ==== ---
+local MainUI = {
+    gui = nil,
+    inputBox = nil,
+    outputContent = nil,
+    
+    -- Initialize the main window
+    init = function(self)
+        local scale = Utils.getUIScale()
+        
+        -- Create main GUI container
+        self.gui = Instance.new("ScreenGui")
+        self.gui.Name = "ZetaDeobfuscator"
+        self.gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        self.gui.ResetOnSpawn = false
+        
+        -- Main window frame
+        local mainFrame = UIComponents.createFrame(
+            "MainWindow",
+            UDim2.new(0, 500 * scale, 0, 600 * scale),
+            UDim2.new(0.5, -250 * scale, 0.5, -300 * scale),
+            self.gui,
+            {
+                BackgroundColor3 = CONFIG.UI_COLORS.background,
+                AnchorPoint = Vector2.new(0.5, 0.5)
+            }
+        )
+        
+        -- Title bar
+        self:createTitleBar(mainFrame)
+        
+        -- Input section
+        local inputSection = self:createInputSection(mainFrame)
+        self.inputBox = inputSection.inputBox
+        
+        -- Output section
+        local outputSection = self:createOutputSection(mainFrame)
+        self.outputContent = outputSection.outputContent
+        
+        -- Action buttons
+        self:createActionButtons(mainFrame)
+        
+        -- Initial message
+        self.outputContent.Text = "Paste obfuscated code above and click Deobfuscate"
+        
+        self.gui.Parent = CoreGui
+        Logger:add("UI initialized", "INFO")
+    end,
+    
+    -- Create the title bar with close button
     createTitleBar = function(self, parent)
-        local titleBar = self:createFrame("TitleBar", UDim2.new(1, 0, 0, 50), {
-            BackgroundColor3 = Color3.fromRGB(15, 15, 25),
-            Parent = parent
-        })
+        local titleBar = UIComponents.createFrame(
+            "TitleBar",
+            UDim2.new(1, 0, 0, 40),
+            UDim2.new(0, 0, 0, 0),
+            parent,
+            {
+                BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+            }
+        )
         
-        local title = Instance.new("TextLabel")
-        title.Name = "Title"
-        title.Text = "ZETA DEOBFUSCATOR v9.0 (MOBILE)"
-        title.Font = Enum.Font.GothamBold
-        title.TextSize = 18
-        title.TextColor3 = Color3.fromRGB(255, 255, 255)
-        title.Size = UDim2.new(1, -40, 1, 0)
-        title.BackgroundTransparency = 1
-        title.Parent = titleBar
+        UIComponents.createLabel(
+            "Title",
+            "ZETA DEOBFUSCATOR v9.1",
+            UDim2.new(1, -40, 1, 0),
+            UDim2.new(0, 10, 0, 0),
+            titleBar,
+            16,
+            CONFIG.FONTS.title
+        )
         
+        -- Close button
         local closeBtn = Instance.new("ImageButton")
         closeBtn.Name = "CloseButton"
         closeBtn.Image = "rbxassetid://3926305904"
@@ -317,80 +448,37 @@ local UIBuilder = {
         closeBtn.BackgroundTransparency = 1
         closeBtn.Parent = titleBar
         
-        -- Draggable window implementation (disabled on mobile)
-        if not self.isMobile then
-            local dragging, dragInput, dragStart, startPos
-            titleBar.InputBegan:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                    dragging = true
-                    dragStart = input.Position
-                    startPos = parent.Position
-                    
-                    input.Changed:Connect(function()
-                        if input.UserInputState == Enum.UserInputState.End then
-                            dragging = false
-                        end
-                    end)
-                end
-            end)
-            
-            UserInputService.InputChanged:Connect(function(input)
-                if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-                    local delta = input.Position - dragStart
-                    parent.Position = UDim2.new(
-                        startPos.X.Scale, startPos.X.Offset + delta.X,
-                        startPos.Y.Scale, startPos.Y.Offset + delta.Y
-                    )
-                end
-            end)
-        end
-        
         closeBtn.MouseButton1Click:Connect(function()
-            parent:Destroy()
+            self.gui:Destroy()
         end)
     end,
     
+    -- Create the input section
     createInputSection = function(self, parent)
-        local container = self:createFrame("InputSection", UDim2.new(1, -20, 0, 200), {
-            Position = UDim2.new(0, 10, 0, 55),
-            BackgroundTransparency = 1,
-            Parent = parent
-        })
+        local container = UIComponents.createFrame(
+            "InputSection",
+            UDim2.new(1, -20, 0, 180),
+            UDim2.new(0, 10, 0, 45),
+            parent,
+            { BackgroundTransparency = 1 }
+        )
         
-        local label = Instance.new("TextLabel")
-        label.Name = "InputLabel"
-        label.Text = "Obfuscated Script:"
-        label.Font = Enum.Font.Gotham
-        label.TextSize = 16
-        label.TextColor3 = self.colors.text
-        label.Size = UDim2.new(1, 0, 0, 25)
-        label.BackgroundTransparency = 1
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = container
+        UIComponents.createLabel(
+            "InputLabel",
+            "Obfuscated Script:",
+            UDim2.new(1, 0, 0, 20),
+            UDim2.new(0, 0, 0, 0),
+            container,
+            14
+        )
         
-        local inputBox = Instance.new("TextBox")
-        inputBox.Name = "InputBox"
-        inputBox.PlaceholderText = "Paste obfuscated loadstring here..."
-        inputBox.Size = UDim2.new(1, 0, 1, -30)
-        inputBox.Position = UDim2.new(0, 0, 0, 30)
-        inputBox.BackgroundColor3 = self.colors.panel
-        inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-        inputBox.Font = Enum.Font.RobotoMono
-        inputBox.TextSize = 14
-        inputBox.MultiLine = true
-        inputBox.TextWrapped = true
-        inputBox.ClearTextOnFocus = false
-        inputBox.TextXAlignment = Enum.TextXAlignment.Left
-        inputBox.TextYAlignment = Enum.TextYAlignment.Top
-        inputBox.Parent = container
-        
-        Instance.new("UICorner", inputBox).CornerRadius = UDim.new(0, 8)
-        
-        -- Mobile-specific optimizations
-        if self.isMobile then
-            inputBox.TextScaled = true
-            inputBox.TextSize = 12
-        end
+        local inputBox = UIComponents.createTextBox(
+            "InputBox",
+            "Paste obfuscated loadstring here...",
+            UDim2.new(1, 0, 1, -25),
+            UDim2.new(0, 0, 0, 25),
+            container
+        )
         
         return {
             container = container,
@@ -398,32 +486,32 @@ local UIBuilder = {
         }
     end,
     
+    -- Create the output section
     createOutputSection = function(self, parent)
-        local container = self:createFrame("OutputSection", UDim2.new(1, -20, 0, 300), {
-            Position = UDim2.new(0, 10, 0, 265),
-            BackgroundTransparency = 1,
-            Parent = parent
-        })
+        local container = UIComponents.createFrame(
+            "OutputSection",
+            UDim2.new(1, -20, 0, 250),
+            UDim2.new(0, 10, 0, 235),
+            parent,
+            { BackgroundTransparency = 1 }
+        )
         
-        local label = Instance.new("TextLabel")
-        label.Name = "OutputLabel"
-        label.Text = "Deobfuscated Script:"
-        label.Font = Enum.Font.Gotham
-        label.TextSize = 16
-        label.TextColor3 = self.colors.text
-        label.Size = UDim2.new(1, 0, 0, 25)
-        label.BackgroundTransparency = 1
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = container
+        UIComponents.createLabel(
+            "OutputLabel",
+            "Deobfuscated Script:",
+            UDim2.new(1, 0, 0, 20),
+            UDim2.new(0, 0, 0, 0),
+            container,
+            14
+        )
         
         local scrollFrame = Instance.new("ScrollingFrame")
         scrollFrame.Name = "OutputScroll"
-        scrollFrame.Size = UDim2.new(1, 0, 1, -30)
-        scrollFrame.Position = UDim2.new(0, 0, 0, 30)
-        scrollFrame.BackgroundColor3 = self.colors.panel
-        scrollFrame.ScrollBarThickness = 8
+        scrollFrame.Size = UDim2.new(1, 0, 1, -25)
+        scrollFrame.Position = UDim2.new(0, 0, 0, 25)
+        scrollFrame.BackgroundColor3 = CONFIG.UI_COLORS.panel
+        scrollFrame.ScrollBarThickness = 6
         scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-        scrollFrame.ScrollingDirection = Enum.ScrollingDirection.Y
         scrollFrame.Parent = container
         
         local outputContent = Instance.new("TextLabel")
@@ -431,9 +519,9 @@ local UIBuilder = {
         outputContent.Size = UDim2.new(1, -10, 0, 0)
         outputContent.Position = UDim2.new(0, 5, 0, 5)
         outputContent.Text = ""
-        outputContent.TextColor3 = self.colors.text
-        outputContent.Font = Enum.Font.RobotoMono
-        outputContent.TextSize = 14
+        outputContent.TextColor3 = CONFIG.UI_COLORS.text
+        outputContent.Font = CONFIG.FONTS.code
+        outputContent.TextSize = 12
         outputContent.TextXAlignment = Enum.TextXAlignment.Left
         outputContent.TextYAlignment = Enum.TextYAlignment.Top
         outputContent.TextWrapped = true
@@ -443,138 +531,89 @@ local UIBuilder = {
         
         Instance.new("UICorner", scrollFrame).CornerRadius = UDim.new(0, 8)
         
-        -- Mobile-specific optimizations
-        if self.isMobile then
-            outputContent.TextScaled = true
-            outputContent.TextSize = 12
-        end
-        
         return {
             container = container,
             outputContent = outputContent
         }
     end,
     
-    createActionButtons = function(self, parent, inputBox, outputContent)
-        local container = self:createFrame("ButtonContainer", UDim2.new(1, -20, 0, 60), {
-            Position = UDim2.new(0, 10, 1, -70),
-            BackgroundTransparency = 1,
-            Parent = parent
-        })
+    -- Create action buttons (Deobfuscate, Copy)
+    createActionButtons = function(self, parent)
+        local container = UIComponents.createFrame(
+            "ButtonContainer",
+            UDim2.new(1, -20, 0, 40),
+            UDim2.new(0, 10, 1, -50),
+            parent,
+            { BackgroundTransparency = 1 }
+        )
         
-        local deobfuscateBtn = Instance.new("TextButton")
-        deobfuscateBtn.Name = "DeobfuscateButton"
-        deobfuscateBtn.Text = "DEOBFUSCATE"
-        deobfuscateBtn.Size = UDim2.new(0.45, 0, 1, 0)
-        deobfuscateBtn.Position = UDim2.new(0, 0, 0, 0)
-        deobfuscateBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
-        deobfuscateBtn.Font = Enum.Font.GothamBold
-        deobfuscateBtn.TextSize = 16
-        deobfuscateBtn.TextScaled = self.isMobile
-        deobfuscateBtn.Parent = container
+        -- Deobfuscate button
+        UIComponents.createButton(
+            "DeobfuscateButton",
+            "DEOBFUSCATE",
+            UDim2.new(0.45, 0, 1, 0),
+            UDim2.new(0, 0, 0, 0),
+            container,
+            function()
+                self:onDeobfuscateClick()
+            end
+        )
         
-        local copyBtn = Instance.new("TextButton")
-        copyBtn.Name = "CopyButton"
-        copyBtn.Text = "COPY CLEAN CODE"
-        copyBtn.Size = UDim2.new(0.45, 0, 1, 0)
-        copyBtn.Position = UDim2.new(0.55, 0, 0, 0)
-        copyBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 100)
-        copyBtn.Font = Enum.Font.Gotham
-        copyBtn.TextSize = 16
-        copyBtn.TextScaled = self.isMobile
-        copyBtn.Parent = container
-        
-        -- Shared corner instance
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 8)
-        corner.Parent = deobfuscateBtn
-        corner:Clone().Parent = copyBtn
-        
-        -- Button functionality with enhanced feedback
-        local function updateOutput(text)
-            outputContent.Text = text
-            task.defer(function()
-                outputContent.Parent.CanvasPosition = Vector2.new(0, outputContent.AbsoluteSize.Y)
-            end)
+        -- Copy button
+        UIComponents.createButton(
+            "CopyButton",
+            "COPY CLEAN CODE",
+            UDim2.new(0.45, 0, 1, 0),
+            UDim2.new(0.55, 0, 0, 0),
+            container,
+            function()
+                self:onCopyClick()
+            end
+        )
+    end,
+    
+    -- Handle deobfuscation button click
+    onDeobfuscateClick = function(self)
+        local code = self.inputBox.Text
+        if #code < 10 then
+            self:updateOutput("Error: Input too short (min 10 chars)", true)
+            return
         end
         
-        deobfuscateBtn.MouseButton1Click:Connect(function()
-            local code = inputBox.Text
-            if #code < 10 then
-                updateOutput("Error: Input too short (min 10 chars)")
-                return
-            end
-            
-            -- Visual feedback
-            local originalText = deobfuscateBtn.Text
-            deobfuscateBtn.Text = "PROCESSING..."
-            deobfuscateBtn.AutoButtonColor = false
-            
-            -- Animate button
-            TweenService:Create(deobfuscateBtn, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(0, 70, 0)
-            }):Play()
-            
-            task.spawn(function()
-                local cleanCode, err = Deobfuscator:process(code)
-                
-                -- Restore button state
-                TweenService:Create(deobfuscateBtn, TweenInfo.new(0.2), {
-                    BackgroundColor3 = Color3.fromRGB(0, 100, 0)
-                }):Play()
-                
-                deobfuscateBtn.Text = originalText
-                deobfuscateBtn.AutoButtonColor = true
-                
-                if cleanCode then
-                    updateOutput(cleanCode)
-                    Logger:add("Deobfuscation successful", "INFO")
-                else
-                    updateOutput("Error: "..tostring(err))
-                    Logger:add("Deobfuscation failed: "..err, "ERROR")
-                end
+        -- Process the code
+        local cleanCode, err = Deobfuscator:process(code)
+        if cleanCode then
+            self:updateOutput(cleanCode)
+            Logger:add("Deobfuscation successful", "INFO")
+        else
+            self:updateOutput("Error: " .. tostring(err), true)
+            Logger:add("Deobfuscation failed: " .. err, "ERROR")
+        end
+    end,
+    
+    -- Handle copy button click
+    onCopyClick = function(self)
+        if #self.outputContent.Text > 0 then
+            setclipboard(self.outputContent.Text)
+            self:updateOutput("Copied to clipboard!", false, CONFIG.UI_COLORS.success)
+            task.delay(1.5, function()
+                self:updateOutput(self.outputContent.Text) -- Restore original text
             end)
-        end)
+        end
+    end,
+    
+    -- Update output with optional error styling
+    updateOutput = function(self, text, isError, color)
+        self.outputContent.Text = text
+        self.outputContent.TextColor3 = color or (isError and CONFIG.UI_COLORS.error or CONFIG.UI_COLORS.text)
         
-        copyBtn.MouseButton1Click:Connect(function()
-            if #outputContent.Text > 0 then
-                setclipboard(outputContent.Text)
-                
-                -- Visual feedback
-                local originalText = copyBtn.Text
-                copyBtn.Text = "COPIED!"
-                copyBtn.AutoButtonColor = false
-                
-                TweenService:Create(copyBtn, TweenInfo.new(0.2), {
-                    BackgroundColor3 = Color3.fromRGB(80, 80, 150)
-                }):Play()
-                
-                task.delay(1.5, function()
-                    TweenService:Create(copyBtn, TweenInfo.new(0.2), {
-                        BackgroundColor3 = Color3.fromRGB(50, 50, 100)
-                    }):Play()
-                    copyBtn.Text = originalText
-                    copyBtn.AutoButtonColor = true
-                end)
-            end
+        -- Auto-scroll to bottom
+        task.defer(function()
+            self.outputContent.Parent.CanvasPosition = Vector2.new(0, self.outputContent.AbsoluteSize.Y)
         end)
     end
 }
 
---- ==== MAIN EXECUTION ==== ---
-local function initialize()
-    local gui = UIBuilder:createWindow()
-    gui.Parent = CoreGui
-    
-    -- Set initial message
-    local outputContent = gui:FindFirstChild("MainWindow", true)
-                         :FindFirstChild("OutputSection", true)
-                         :FindFirstChild("OutputScroll", true)
-                         :FindFirstChild("OutputContent", true)
-    outputContent.Text = "Paste obfuscated code above and click Deobfuscate"
-    
-    Logger:add("Zeta Deobfuscator (Mobile) initialized", "INFO")
-end
-
--- Start the application
-initialize()
+--- ==== INITIALIZATION ==== ---
+MainUI:init()
+Logger:add("Zeta Deobfuscator started", "INFO")
