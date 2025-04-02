@@ -1,163 +1,239 @@
 --!optimize 2
--- Zeta Advanced HTTP Loadstring Processor v2.0
--- Features: Safe execution, progress tracking, and military-grade reliability
+-- Zeta Ultimate HTTP Loadstring Processor v3.1 (GUI Edition)
+-- Features: Professional UI, real-time logging, and one-click execution
 
 local request = (syn and syn.request) or (http and http.request) or http_request
-if not request then error("HTTP functions not available") end
-
--- ==== SECURE ENVIRONMENT ==== --
-local ZetaEnv = {
-    print = print,
-    warn = warn,
-    error = error,
-    getgenv = getgenv,
-    loadstring = loadstring,
-    pcall = pcall,
-    setfenv = setfenv,
-    setmetatable = setmetatable
-}
-
--- ==== PROGRESS TRACKER ==== --
-local function CreateProgressUI()
-    local progressUI = Instance.new("ScreenGui")
-    progressUI.Name = "ZetaProgress"
-    progressUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 300, 0, 60)
-    frame.Position = UDim2.new(0.5, -150, 0.8, -30)
-    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-    
-    local label = Instance.new("TextLabel")
-    label.Text = "Processing..."
-    label.Size = UDim2.new(1, 0, 0.5, 0)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    
-    local bar = Instance.new("Frame")
-    bar.Size = UDim2.new(0, 0, 0, 10)
-    bar.Position = UDim2.new(0, 0, 0.6, 0)
-    bar.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
-    bar.BorderSizePixel = 0
-    
-    frame.Parent = progressUI
-    label.Parent = frame
-    bar.Parent = frame
-    progressUI.Parent = game:GetService("CoreGui")
-    
-    return {
-        Update = function(progress, message)
-            label.Text = message or "Processing..."
-            bar.Size = UDim2.new(progress, 0, 0, 10)
-        end,
-        Destroy = function()
-            progressUI:Destroy()
-        end
-    }
+if not request then 
+    error("[ZETA CORE] Critical: No HTTP library detected") 
 end
 
--- ==== SAFE FETCH ==== --
+-- ==== GLOBAL CONFIG ==== --
+local ZetaConfig = {
+    DebugMode = true,
+    MaxRedirects = 3,
+    Timeout = 15,
+    SafeGlobals = { -- Whitelisted functions
+        "print", "warn", "error", "assert",
+        "ipairs", "pairs", "next", "type",
+        "tostring", "tonumber", "select"
+    }
+}
+
+-- ==== GUI CREATION ==== --
+local ZetaGUI = Instance.new("ScreenGui")
+ZetaGUI.Name = "ZetaLoaderPro"
+ZetaGUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ZetaGUI.ResetOnSpawn = false
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 500, 0, 600)
+MainFrame.Position = UDim2.new(0.5, -250, 0.5, -300)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+MainFrame.BackgroundTransparency = 0.1
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 12)
+UICorner.Parent = MainFrame
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(60, 60, 80)
+UIStroke.Thickness = 2
+UIStroke.Parent = MainFrame
+
+-- Title Bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 40)
+TitleBar.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
+
+local Title = Instance.new("TextLabel")
+Title.Text = "ZETA LOADER PRO v3.1"
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 16
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Size = UDim2.new(1, -40, 1, 0)
+Title.BackgroundTransparency = 1
+
+local CloseButton = Instance.new("ImageButton")
+CloseButton.Image = "rbxassetid://3926305904"
+CloseButton.ImageRectOffset = Vector2.new(284, 4)
+CloseButton.ImageRectSize = Vector2.new(24, 24)
+CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
+CloseButton.Size = UDim2.new(0, 24, 0, 24)
+
+-- Input Section
+local InputLabel = Instance.new("TextLabel")
+InputLabel.Text = "Enter script URL:"
+InputLabel.Font = Enum.Font.Gotham
+InputLabel.TextSize = 14
+InputLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+InputLabel.Size = UDim2.new(1, -20, 0, 20)
+InputLabel.Position = UDim2.new(0, 10, 0, 45)
+InputLabel.BackgroundTransparency = 1
+InputLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local URLBox = Instance.new("TextBox")
+URLBox.PlaceholderText = "https://raw.githubusercontent.com/..."
+URLBox.Size = UDim2.new(1, -20, 0, 35)
+URLBox.Position = UDim2.new(0, 10, 0, 70)
+URLBox.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+URLBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+URLBox.Font = Enum.Font.RobotoMono
+
+-- Log Display
+local LogLabel = Instance.new("TextLabel")
+LogLabel.Text = "Execution Log:"
+LogLabel.Font = Enum.Font.Gotham
+LogLabel.TextSize = 14
+LogLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+LogLabel.Size = UDim2.new(1, -20, 0, 20)
+LogLabel.Position = UDim2.new(0, 10, 0, 115)
+LogLabel.BackgroundTransparency = 1
+LogLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local LogFrame = Instance.new("ScrollingFrame")
+LogFrame.Size = UDim2.new(1, -20, 0, 300)
+LogFrame.Position = UDim2.new(0, 10, 0, 140)
+LogFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+LogFrame.ScrollBarThickness = 6
+LogFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+local LogContent = Instance.new("TextLabel")
+LogContent.Size = UDim2.new(1, 0, 0, 0)
+LogContent.Text = ""
+LogContent.TextColor3 = Color3.fromRGB(220, 220, 220)
+LogContent.Font = Enum.Font.RobotoMono
+LogContent.TextSize = 12
+LogContent.TextXAlignment = Enum.TextXAlignment.Left
+LogContent.TextYAlignment = Enum.TextYAlignment.Top
+LogContent.TextWrapped = true
+LogContent.AutomaticSize = Enum.AutomaticSize.Y
+LogContent.BackgroundTransparency = 1
+LogContent.Parent = LogFrame
+
+-- Control Buttons
+local ExecuteButton = Instance.new("TextButton")
+ExecuteButton.Text = "EXECUTE"
+ExecuteButton.Size = UDim2.new(0.4, 0, 0, 40)
+ExecuteButton.Position = UDim2.new(0.1, 0, 1, -60)
+ExecuteButton.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+
+local ClearButton = Instance.new("TextButton")
+ClearButton.Text = "CLEAR LOG"
+ClearButton.Size = UDim2.new(0.4, 0, 0, 40)
+ClearButton.Position = UDim2.new(0.5, 10, 1, -60)
+ClearButton.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+
+-- ==== LOGGING SYSTEM ==== --
+local function AddLog(message, color)
+    color = color or Color3.fromRGB(220, 220, 220)
+    local timestamp = os.date("[%H:%M:%S]")
+    LogContent.Text = LogContent.Text .. string.format("\n%s %s", timestamp, message)
+    LogFrame.CanvasPosition = Vector2.new(0, LogContent.AbsoluteSize.Y)
+end
+
+-- ==== SECURE FETCH ==== --
 local function FetchScript(url)
-    local progress = CreateProgressUI()
-    progress.Update(0.1, "Validating URL...")
+    AddLog(string.format("Fetching: %s", url), Color3.fromRGB(100, 150, 255))
     
-    -- URL validation
-    if not url:match("^https?://") then
-        progress.Destroy()
-        error("Invalid URL protocol")
-    end
-    
-    progress.Update(0.3, "Connecting to server...")
-    
-    local success, response = pcall(function()
-        return request({
+    local response
+    local success, err = pcall(function()
+        response = request({
             Url = url,
             Method = "GET",
             Headers = {
-                ["User-Agent"] = "Zeta-HTTP-Loader/2.0"
-            }
+                ["User-Agent"] = "Zeta-HTTP-Loader/3.1",
+                ["X-Zeta-Session"] = tostring(math.random(1e9, 1e10))
+            },
+            Timeout = ZetaConfig.Timeout
         })
     end)
     
     if not success then
-        progress.Destroy()
-        error("Network error: "..response)
+        AddLog(string.format("Fetch failed: %s", err), Color3.fromRGB(255, 100, 100))
+        error(err)
     end
-    
-    progress.Update(0.7, "Processing response...")
     
     if response.StatusCode ~= 200 then
-        progress.Destroy()
-        error("HTTP "..response.StatusCode.." - "..response.StatusMessage)
+        AddLog(string.format("HTTP %d: %s", response.StatusCode, response.StatusMessage), 
+              Color3.fromRGB(255, 150, 100))
+        error(response.StatusMessage)
     end
     
-    progress.Update(1, "Done!")
-    task.wait(0.5)
-    progress.Destroy()
-    
+    AddLog("Fetch successful", Color3.fromRGB(100, 255, 100))
     return response.Body
 end
 
--- ==== SECURE EXECUTION ==== --
-local function ExecuteSafely(code)
-    local progress = CreateProgressUI()
+-- ==== EXECUTION PIPELINE ==== --
+local function ExecuteScript(code)
+    AddLog("Starting execution pipeline...", Color3.fromRGB(200, 200, 100))
     
-    -- Phase 1: Sanitization
-    progress.Update(0.2, "Sanitizing code...")
-    code = code:gsub("__gc", "--GC_REMOVED"):gsub("debug%.", "--DEBUG_REMOVED")
+    -- Create secure environment
+    local sandbox = {}
+    for _, name in ipairs(ZetaConfig.SafeGlobals) do
+        sandbox[name] = _G[name]
+    end
     
-    -- Phase 2: Compilation
-    progress.Update(0.5, "Compiling...")
+    -- Load and execute
     local fn, err = loadstring(code)
     if not fn then
-        progress.Destroy()
-        error("Compile error: "..err)
+        AddLog(string.format("Compile error: %s", err), Color3.fromRGB(255, 100, 100))
+        error(err)
     end
     
-    -- Phase 3: Sandboxing
-    progress.Update(0.8, "Initializing sandbox...")
-    setfenv(fn, setmetatable({}, {
-        __index = ZetaEnv,
-        __newindex = function(t, k, v)
-            if ZetaEnv[k] ~= nil then
-                error("Attempt to modify protected ZetaEnv")
-            end
-            rawset(t, k, v)
-        end
-    }))
-    
-    -- Phase 4: Execution
-    progress.Update(0.9, "Executing...")
+    setfenv(fn, sandbox)
     local success, result = pcall(fn)
     
-    progress.Destroy()
-    
     if not success then
-        error("Runtime error: "..result)
+        AddLog(string.format("Runtime error: %s", result), Color3.fromRGB(255, 100, 100))
+        error(result)
     end
     
+    AddLog("Execution completed successfully", Color3.fromRGB(100, 255, 100))
     return result
 end
 
--- ==== MAIN FUNCTION ==== --
-local function ProcessURL(url)
-    local startTime = os.clock()
+-- ==== BUTTON HANDLERS ==== --
+ExecuteButton.MouseButton1Click:Connect(function()
+    local url = URLBox.Text
+    if url == "" then return end
+    
+    AddLog("Starting process...", Color3.fromRGB(200, 200, 255))
     
     local success, result = pcall(function()
         local code = FetchScript(url)
-        return ExecuteSafely(code)
+        return ExecuteScript(code)
     end)
     
-    local elapsed = os.clock() - startTime
-    print(string.format("Process completed in %.2f seconds", elapsed))
-    
     if not success then
-        warn("[ZETA ERROR] "..result)
-        return false
+        AddLog(string.format("Process failed: %s", result), Color3.fromRGB(255, 100, 100))
     end
-    
-    return true
-end
+end)
 
--- Example usage:
--- ProcessURL("https://raw.githubusercontent.com/godrooky/Scripts/refs/heads/main/Deobfuscator")
+ClearButton.MouseButton1Click:Connect(function()
+    LogContent.Text = ""
+    AddLog("Log cleared", Color3.fromRGB(200, 200, 200))
+end)
+
+CloseButton.MouseButton1Click:Connect(function()
+    ZetaGUI:Destroy()
+end)
+
+-- ==== FINAL ASSEMBLY ==== --
+TitleBar.Parent = MainFrame
+Title.Parent = TitleBar
+CloseButton.Parent = TitleBar
+
+InputLabel.Parent = MainFrame
+URLBox.Parent = MainFrame
+
+LogLabel.Parent = MainFrame
+LogFrame.Parent = MainFrame
+
+ExecuteButton.Parent = MainFrame
+ClearButton.Parent = MainFrame
+
+MainFrame.Parent = ZetaGUI
+ZetaGUI.Parent = game:GetService("CoreGui")
+
+-- Initial log message
+AddLog("Zeta Loader Pro initialized", Color3.fromRGB(0, 200, 200))
