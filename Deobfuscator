@@ -1,6 +1,10 @@
 --!optimize 2
--- Zeta Deobfuscator GUI v9.1 (Ultimate Modular Edition)
--- Features: Military-grade error handling, mobile optimization, modular UI, secure processing
+--[[
+    Zeta Deobfuscator GUI v9.2
+    Description: Advanced deobfuscation tool with modular UI, optimized decoders, and robust error handling.
+    Author: Zo (Zeta AI)
+    License: Zeta Realm Public License v1.0
+]]
 
 --- ==== MODULE IMPORTS ==== ---
 local HttpService = game:GetService("HttpService")
@@ -9,37 +13,53 @@ local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
 local TextService = game:GetService("TextService")
 
---- ==== GLOBAL CONFIG ==== ---
+--- ==== GLOBAL CONFIGURATION ==== ---
 local CONFIG = {
-    MAX_LOGS = 200,
-    MOBILE_SCALE = 0.85,
-    DESKTOP_SCALE = 1.0,
-    UI_COLORS = {
-        background = Color3.fromRGB(20, 20, 30),
-        panel = Color3.fromRGB(25, 25, 35),
-        accent = Color3.fromRGB(0, 150, 255),
-        text = Color3.fromRGB(220, 220, 220),
-        error = Color3.fromRGB(255, 50, 50),
-        success = Color3.fromRGB(50, 255, 50)
+    -- UI Settings
+    UI_SCALE_MOBILE = 0.85,
+    UI_SCALE_DESKTOP = 1.0,
+    MAX_LOG_ENTRIES = 200,
+    
+    -- Color Scheme
+    COLORS = {
+        BACKGROUND = Color3.fromRGB(20, 20, 30),
+        PANEL = Color3.fromRGB(25, 25, 35),
+        ACCENT = Color3.fromRGB(0, 150, 255),
+        TEXT = Color3.fromRGB(220, 220, 220),
+        ERROR = Color3.fromRGB(255, 50, 50),
+        SUCCESS = Color3.fromRGB(50, 255, 50),
+        WARNING = Color3.fromRGB(255, 165, 0)
     },
+    
+    -- Font Settings
     FONTS = {
-        title = Enum.Font.GothamBold,
-        body = Enum.Font.Gotham,
-        code = Enum.Font.RobotoMono
-    }
+        TITLE = Enum.Font.GothamBold,
+        BODY = Enum.Font.Gotham,
+        CODE = Enum.Font.RobotoMono
+    },
+    
+    -- Performance
+    MAX_DEOBFUSCATION_TIME_MS = 5000, -- Timeout for deobfuscation
+    STRING_LENGTH_LIMIT = 1000000     -- Prevent memory overload
 }
 
 --- ==== LOGGER MODULE ==== ---
+--[[
+    Enhanced logging system with multiple severity levels.
+    Usage:
+        Logger:add("Message", "ERROR") -- Logs an error
+        Logger:flush() -- Returns all logs
+]]
 local Logger = {
     logs = {},
     
     add = function(self, message, level)
-        level = level or "INFO"
+        level = string.upper(level or "INFO")
         local timestamp = os.date("[%H:%M:%S]")
         local entry = string.format("%s [%s] %s", timestamp, level, message)
         
         -- Rotate logs if exceeding maximum
-        if #self.logs >= CONFIG.MAX_LOGS then
+        if #self.logs >= CONFIG.MAX_LOG_ENTRIES then
             table.remove(self.logs, 1)
         end
         table.insert(self.logs, entry)
@@ -57,8 +77,14 @@ local Logger = {
 }
 
 --- ==== UTILITY FUNCTIONS ==== ---
+--[[
+    General-purpose helper functions.
+]]
 local Utils = {
     -- Safely execute a function with error handling
+    -- @param func: Function to execute
+    -- @param ...: Arguments to pass
+    -- @return: Result or nil, error message
     try = function(func, ...)
         local success, result = pcall(func, ...)
         if not success then
@@ -68,27 +94,43 @@ local Utils = {
         return result
     end,
 
-    -- Validate and sanitize input strings
+    -- Sanitize and validate input strings
+    -- @param input: String to sanitize
+    -- @return: Sanitized string or nil, error
     sanitizeInput = function(input)
-        if type(input) ~= "string" then return nil, "Invalid input type" end
-        -- Prevent potential injection (if processing external data)
-        return (input:gsub("[%c%z]", "")) -- Remove control chars
+        if type(input) ~= "string" then 
+            return nil, "Invalid input type (expected string)" 
+        end
+        
+        -- Prevent excessively large inputs
+        if #input > CONFIG.STRING_LENGTH_LIMIT then
+            return nil, "Input exceeds maximum allowed length"
+        end
+        
+        -- Remove control characters and potential malicious patterns
+        return (input:gsub("[%c%z]", "")) 
     end,
 
-    -- Check if platform is mobile
+    -- Check if running on mobile
+    -- @return: Boolean
     isMobile = function()
         return UserInputService.TouchEnabled
     end,
 
     -- Get dynamic UI scale factor
+    -- @return: Number (scale multiplier)
     getUIScale = function()
-        return Utils.isMobile() and CONFIG.MOBILE_SCALE or CONFIG.DESKTOP_SCALE
+        return Utils.isMobile() and CONFIG.UI_SCALE_MOBILE or CONFIG.UI_SCALE_DESKTOP
     end
 }
 
 --- ==== DECODER MODULE ==== ---
+--[[
+    Handles Base64 and Hex decoding with validation.
+    Optimized with lookup tables and error checking.
+]]
 local Decoders = {
-    -- Cache Base64 lookup table for performance
+    -- Base64 character lookup table (cached for performance)
     _b64Lookup = {
         ['A']=0,['B']=1,['C']=2,['D']=3,['E']=4,['F']=5,['G']=6,['H']=7,
         ['I']=8,['J']=9,['K']=10,['L']=11,['M']=12,['N']=13,['O']=14,['P']=15,
@@ -100,16 +142,24 @@ local Decoders = {
         ['4']=56,['5']=57,['6']=58,['7']=59,['8']=60,['9']=61,['+']=62,['/']=63
     },
 
-    -- Base64 decoder with validation
+    -- Decodes Base64 string
+    -- @param encoded: Base64 string
+    -- @return: Decoded string or nil, error
     base64 = function(encoded)
         if not encoded or type(encoded) ~= "string" then
-            return nil, "Invalid input type"
+            return nil, "Invalid input type (expected string)"
+        end
+        
+        -- Validate Base64 format
+        if not encoded:match("^[A-Za-z0-9+/]+=?=?$") then
+            return nil, "Invalid Base64 format"
         end
         
         encoded = encoded:gsub("[^%w%+/=]", "")
         local result = {}
         local i = 1
         
+        -- Process in chunks of 4 characters
         while i <= #encoded do
             local c1 = Decoders._b64Lookup[encoded:sub(i,i)] or 0
             local c2 = Decoders._b64Lookup[encoded:sub(i+1,i+1)] or 0
@@ -138,18 +188,29 @@ local Decoders = {
         return table.concat(result)
     end,
 
-    -- Hex decoder with validation
+    -- Decodes Hex string
+    -- @param encoded: Hex string
+    -- @return: Decoded string or nil, error
     hex = function(encoded)
-        if not encoded or #encoded % 2 ~= 0 then
-            return nil, "Invalid hex string length"
+        if not encoded or type(encoded) ~= "string" then
+            return nil, "Invalid input type (expected string)"
+        end
+        
+        if #encoded % 2 ~= 0 then
+            return nil, "Hex string length must be even"
         end
         
         local result = {}
+        
+        -- Process each byte pair
         for i = 1, #encoded, 2 do
-            local byte = tonumber(encoded:sub(i,i+1), 16)
+            local byteStr = encoded:sub(i, i+1)
+            local byte = tonumber(byteStr, 16)
+            
             if not byte then
-                return nil, "Invalid hex byte at position "..i
+                return nil, string.format("Invalid hex byte '%s' at position %d", byteStr, i)
             end
+            
             table.insert(result, string.char(byte))
         end
         
@@ -158,24 +219,30 @@ local Decoders = {
 }
 
 --- ==== DEOBFUSCATION ENGINE ==== ---
+--[[
+    Core deobfuscation logic with string decoding,
+    variable renaming, and code formatting.
+]]
 local Deobfuscator = {
     variableMap = {},
     lastVarId = 0,
     
-    -- Decode obfuscated strings
+    -- Decodes obfuscated strings in code
+    -- @param code: Input code
+    -- @return: Processed code
     decodeStrings = function(self, code)
         local replacements = {}
         
-        -- Process all string literals
+        -- Find all quoted strings
         for quoted in code:gmatch('(["\'])(.-)%1') do
             local quote, content = quoted[1], quoted[2]
             local decoded, err
             
-            -- Hex detection
+            -- Handle hex escape sequences
             if content:find("\\x%x%x") then
                 decoded, err = Decoders.hex(content:gsub("\\x", ""))
             
-            -- Base64 detection
+            -- Handle Base64 encoded strings
             elseif content:match("^[A-Za-z0-9+/]+=?=?$") then
                 decoded, err = Decoders.base64(content)
             end
@@ -186,11 +253,11 @@ local Deobfuscator = {
                     replacement = quote..decoded..quote
                 })
             elseif err then
-                Logger:add("Decode failed: "..err, "WARN")
+                Logger:add("String decode failed: "..err, "WARN")
             end
         end
         
-        -- Apply replacements
+        -- Apply all replacements
         for _, rep in ipairs(replacements) do
             code = code:gsub(rep.original:gsub("%p", "%%%0"), rep.replacement, 1)
         end
@@ -198,12 +265,14 @@ local Deobfuscator = {
         return code
     end,
     
-    -- Rename variables systematically
+    -- Renames obfuscated variables systematically
+    -- @param code: Input code
+    -- @return: Processed code
     renameVariables = function(self, code)
         self.variableMap = {}
         self.lastVarId = 0
         
-        -- Pattern 1: _0x1a2b3c
+        -- Pattern 1: _0x1a2b3c (hex variables)
         code = code:gsub("(_0x%x+)", function(match)
             if not self.variableMap[match] then
                 self.lastVarId = self.lastVarId + 1
@@ -212,7 +281,7 @@ local Deobfuscator = {
             return self.variableMap[match]
         end)
         
-        -- Pattern 2: _[1] array access
+        -- Pattern 2: _[1] (array access)
         code = code:gsub("(_%[%d+%])", function(match)
             local num = match:match("%d+")
             return string.format("arr_%s", num)
@@ -221,25 +290,33 @@ local Deobfuscator = {
         return code
     end,
     
-    -- Format code for readability
+    -- Cleans up code formatting
+    -- @param code: Input code
+    -- @return: Formatted code
     formatCode = function(self, code)
+        -- Multi-pass formatting
         return code:gsub("%s+", " ")                -- Collapse whitespace
                   :gsub("%s*([%;%,%)%}])%s*", "%1") -- Clean right side
                   :gsub("([%(%{%[])%s*", "%1")      -- Clean left side
                   :gsub("\n%s*\n", "\n")            -- Remove empty lines
     end,
     
-    -- Main processing pipeline
+    -- Main deobfuscation pipeline
+    -- @param code: Input code
+    -- @return: Deobfuscated code or nil, error
     process = function(self, code)
-        if type(code) ~= "string" then
-            return nil, "Input must be a string"
+        -- Input validation
+        local sanitized, err = Utils.sanitizeInput(code)
+        if not sanitized then
+            return nil, err or "Invalid input"
         end
         
-        if #code < 10 then
-            return nil, "Input too short to be obfuscated code"
+        if #sanitized < 10 then
+            return nil, "Input too short (minimum 10 characters required)"
         end
         
-        -- Processing steps with error handling
+        -- Processing pipeline with timeout
+        local startTime = os.clock()
         local steps = {
             {name = "String Decoding", func = self.decodeStrings},
             {name = "Variable Renaming", func = self.renameVariables},
@@ -247,28 +324,42 @@ local Deobfuscator = {
         }
         
         for _, step in ipairs(steps) do
-            local success, result = Utils.try(step.func, self, code)
+            -- Check for timeout
+            if (os.clock() - startTime) * 1000 > CONFIG.MAX_DEOBFUSCATION_TIME_MS then
+                return nil, "Deobfuscation timeout exceeded"
+            end
+            
+            local success, result = Utils.try(step.func, self, sanitized)
             if not success then
                 Logger:add(step.name .. " failed: " .. result, "ERROR")
                 return nil, result
             end
-            code = result
+            sanitized = result
         end
         
-        return code
+        return sanitized
     end
 }
 
 --- ==== UI COMPONENTS MODULE ==== ---
+--[[
+    Reusable UI components with consistent styling.
+]]
 local UIComponents = {
-    -- Create a basic frame with common properties
+    -- Creates a styled frame
+    -- @param name: Instance name
+    -- @param size: UDim2 size
+    -- @param position: UDim2 position
+    -- @param parent: Parent instance
+    -- @param additionalProps: Table of additional properties
+    -- @return: Created frame
     createFrame = function(name, size, position, parent, additionalProps)
         local frame = Instance.new("Frame")
         frame.Name = name
         frame.Size = size
         frame.Position = position
         
-        -- Apply additional properties if provided
+        -- Apply additional properties
         if additionalProps then
             for prop, value in pairs(additionalProps) do
                 frame[prop] = value
@@ -281,7 +372,7 @@ local UIComponents = {
         corner.Parent = frame
         
         local stroke = Instance.new("UIStroke")
-        stroke.Color = CONFIG.UI_COLORS.panel
+        stroke.Color = CONFIG.COLORS.PANEL
         stroke.Thickness = 2
         stroke.Parent = frame
         
@@ -292,7 +383,15 @@ local UIComponents = {
         return frame
     end,
     
-    -- Create a text label
+    -- Creates a text label
+    -- @param name: Instance name
+    -- @param text: Display text
+    -- @param size: UDim2 size
+    -- @param position: UDim2 position
+    -- @param parent: Parent instance
+    -- @param textSize: Font size
+    -- @param font: Font enum
+    -- @return: Created label
     createLabel = function(name, text, size, position, parent, textSize, font)
         local label = Instance.new("TextLabel")
         label.Name = name
@@ -300,9 +399,9 @@ local UIComponents = {
         label.Size = size
         label.Position = position
         label.BackgroundTransparency = 1
-        label.TextColor3 = CONFIG.UI_COLORS.text
+        label.TextColor3 = CONFIG.COLORS.TEXT
         label.TextSize = textSize or 14
-        label.Font = font or CONFIG.FONTS.body
+        label.Font = font or CONFIG.FONTS.BODY
         label.TextXAlignment = Enum.TextXAlignment.Left
         
         if parent then
@@ -312,16 +411,23 @@ local UIComponents = {
         return label
     end,
     
-    -- Create a button with click handler
+    -- Creates a clickable button
+    -- @param name: Instance name
+    -- @param text: Button text
+    -- @param size: UDim2 size
+    -- @param position: UDim2 position
+    -- @param parent: Parent instance
+    -- @param onClick: Click handler function
+    -- @return: Created button
     createButton = function(name, text, size, position, parent, onClick)
         local button = Instance.new("TextButton")
         button.Name = name
         button.Text = text
         button.Size = size
         button.Position = position
-        button.BackgroundColor3 = CONFIG.UI_COLORS.accent
+        button.BackgroundColor3 = CONFIG.COLORS.ACCENT
         button.TextColor3 = Color3.new(1, 1, 1)
-        button.Font = CONFIG.FONTS.body
+        button.Font = CONFIG.FONTS.BODY
         button.TextSize = 14
         
         local corner = Instance.new("UICorner")
@@ -341,16 +447,22 @@ local UIComponents = {
         return button
     end,
     
-    -- Create a text input box
+    -- Creates a text input box
+    -- @param name: Instance name
+    -- @param placeholder: Placeholder text
+    -- @param size: UDim2 size
+    -- @param position: UDim2 position
+    -- @param parent: Parent instance
+    -- @return: Created text box
     createTextBox = function(name, placeholder, size, position, parent)
         local textBox = Instance.new("TextBox")
         textBox.Name = name
         textBox.PlaceholderText = placeholder
         textBox.Size = size
         textBox.Position = position
-        textBox.BackgroundColor3 = CONFIG.UI_COLORS.panel
-        textBox.TextColor3 = CONFIG.UI_COLORS.text
-        textBox.Font = CONFIG.FONTS.code
+        textBox.BackgroundColor3 = CONFIG.COLORS.PANEL
+        textBox.TextColor3 = CONFIG.COLORS.TEXT
+        textBox.Font = CONFIG.FONTS.CODE
         textBox.TextSize = 12
         textBox.MultiLine = true
         textBox.TextWrapped = true
@@ -367,12 +479,16 @@ local UIComponents = {
 }
 
 --- ==== MAIN UI MODULE ==== ---
+--[[
+    Primary user interface with input/output panels
+    and control buttons.
+]]
 local MainUI = {
     gui = nil,
     inputBox = nil,
     outputContent = nil,
     
-    -- Initialize the main window
+    -- Initializes the main UI window
     init = function(self)
         local scale = Utils.getUIScale()
         
@@ -389,33 +505,30 @@ local MainUI = {
             UDim2.new(0.5, -250 * scale, 0.5, -300 * scale),
             self.gui,
             {
-                BackgroundColor3 = CONFIG.UI_COLORS.background,
+                BackgroundColor3 = CONFIG.COLORS.BACKGROUND,
                 AnchorPoint = Vector2.new(0.5, 0.5)
             }
         )
         
-        -- Title bar
+        -- Build UI components
         self:createTitleBar(mainFrame)
-        
-        -- Input section
         local inputSection = self:createInputSection(mainFrame)
-        self.inputBox = inputSection.inputBox
-        
-        -- Output section
         local outputSection = self:createOutputSection(mainFrame)
-        self.outputContent = outputSection.outputContent
-        
-        -- Action buttons
         self:createActionButtons(mainFrame)
         
-        -- Initial message
+        -- Store references to important elements
+        self.inputBox = inputSection.inputBox
+        self.outputContent = outputSection.outputContent
+        
+        -- Set initial output message
         self.outputContent.Text = "Paste obfuscated code above and click Deobfuscate"
         
+        -- Finalize
         self.gui.Parent = CoreGui
-        Logger:add("UI initialized", "INFO")
+        Logger:add("UI initialized successfully", "INFO")
     end,
     
-    -- Create the title bar with close button
+    -- Creates the title bar with close button
     createTitleBar = function(self, parent)
         local titleBar = UIComponents.createFrame(
             "TitleBar",
@@ -427,14 +540,15 @@ local MainUI = {
             }
         )
         
+        -- Title text
         UIComponents.createLabel(
             "Title",
-            "ZETA DEOBFUSCATOR v9.1",
+            "ZETA DEOBFUSCATOR v9.2",
             UDim2.new(1, -40, 1, 0),
             UDim2.new(0, 10, 0, 0),
             titleBar,
             16,
-            CONFIG.FONTS.title
+            CONFIG.FONTS.TITLE
         )
         
         -- Close button
@@ -453,7 +567,7 @@ local MainUI = {
         end)
     end,
     
-    -- Create the input section
+    -- Creates the input code section
     createInputSection = function(self, parent)
         local container = UIComponents.createFrame(
             "InputSection",
@@ -463,6 +577,7 @@ local MainUI = {
             { BackgroundTransparency = 1 }
         )
         
+        -- Section label
         UIComponents.createLabel(
             "InputLabel",
             "Obfuscated Script:",
@@ -472,6 +587,7 @@ local MainUI = {
             14
         )
         
+        -- Input text box
         local inputBox = UIComponents.createTextBox(
             "InputBox",
             "Paste obfuscated loadstring here...",
@@ -486,7 +602,7 @@ local MainUI = {
         }
     end,
     
-    -- Create the output section
+    -- Creates the output section
     createOutputSection = function(self, parent)
         local container = UIComponents.createFrame(
             "OutputSection",
@@ -496,6 +612,7 @@ local MainUI = {
             { BackgroundTransparency = 1 }
         )
         
+        -- Section label
         UIComponents.createLabel(
             "OutputLabel",
             "Deobfuscated Script:",
@@ -505,22 +622,24 @@ local MainUI = {
             14
         )
         
+        -- Scrollable output area
         local scrollFrame = Instance.new("ScrollingFrame")
         scrollFrame.Name = "OutputScroll"
         scrollFrame.Size = UDim2.new(1, 0, 1, -25)
         scrollFrame.Position = UDim2.new(0, 0, 0, 25)
-        scrollFrame.BackgroundColor3 = CONFIG.UI_COLORS.panel
+        scrollFrame.BackgroundColor3 = CONFIG.COLORS.PANEL
         scrollFrame.ScrollBarThickness = 6
         scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
         scrollFrame.Parent = container
         
+        -- Output content display
         local outputContent = Instance.new("TextLabel")
         outputContent.Name = "OutputContent"
         outputContent.Size = UDim2.new(1, -10, 0, 0)
         outputContent.Position = UDim2.new(0, 5, 0, 5)
         outputContent.Text = ""
-        outputContent.TextColor3 = CONFIG.UI_COLORS.text
-        outputContent.Font = CONFIG.FONTS.code
+        outputContent.TextColor3 = CONFIG.COLORS.TEXT
+        outputContent.Font = CONFIG.FONTS.CODE
         outputContent.TextSize = 12
         outputContent.TextXAlignment = Enum.TextXAlignment.Left
         outputContent.TextYAlignment = Enum.TextYAlignment.Top
@@ -537,7 +656,7 @@ local MainUI = {
         }
     end,
     
-    -- Create action buttons (Deobfuscate, Copy)
+    -- Creates the action buttons
     createActionButtons = function(self, parent)
         local container = UIComponents.createFrame(
             "ButtonContainer",
@@ -572,48 +691,65 @@ local MainUI = {
         )
     end,
     
-    -- Handle deobfuscation button click
+    -- Handles deobfuscation button click
     onDeobfuscateClick = function(self)
         local code = self.inputBox.Text
+        
+        -- Input validation
         if #code < 10 then
-            self:updateOutput("Error: Input too short (min 10 chars)", true)
+            self:updateOutput("Error: Input too short (minimum 10 characters)", true)
             return
         end
         
-        -- Process the code
-        local cleanCode, err = Deobfuscator:process(code)
-        if cleanCode then
-            self:updateOutput(cleanCode)
-            Logger:add("Deobfuscation successful", "INFO")
-        else
-            self:updateOutput("Error: " .. tostring(err), true)
-            Logger:add("Deobfuscation failed: " .. err, "ERROR")
-        end
+        -- Process with visual feedback
+        self:updateOutput("Processing...", false, CONFIG.COLORS.ACCENT)
+        
+        task.spawn(function()
+            local cleanCode, err = Deobfuscator:process(code)
+            
+            if cleanCode then
+                self:updateOutput(cleanCode)
+                Logger:add("Deobfuscation successful", "INFO")
+            else
+                self:updateOutput("Error: " .. tostring(err), true)
+                Logger:add("Deobfuscation failed: " .. err, "ERROR")
+            end
+        end)
     end,
     
-    -- Handle copy button click
+    -- Handles copy button click
     onCopyClick = function(self)
         if #self.outputContent.Text > 0 then
             setclipboard(self.outputContent.Text)
-            self:updateOutput("Copied to clipboard!", false, CONFIG.UI_COLORS.success)
+            self:updateOutput("Copied to clipboard!", false, CONFIG.COLORS.SUCCESS)
+            
+            -- Reset after delay
             task.delay(1.5, function()
-                self:updateOutput(self.outputContent.Text) -- Restore original text
+                if self.outputContent.Text == "Copied to clipboard!" then
+                    self:updateOutput("Paste obfuscated code above and click Deobfuscate")
+                end
             end)
         end
     end,
     
-    -- Update output with optional error styling
+    -- Updates the output display
+    -- @param text: Text to display
+    -- @param isError: Whether to show as error
+    -- @param color: Optional custom color
     updateOutput = function(self, text, isError, color)
         self.outputContent.Text = text
-        self.outputContent.TextColor3 = color or (isError and CONFIG.UI_COLORS.error or CONFIG.UI_COLORS.text)
+        self.outputContent.TextColor3 = color or 
+            (isError and CONFIG.COLORS.ERROR or CONFIG.COLORS.TEXT)
         
         -- Auto-scroll to bottom
         task.defer(function()
-            self.outputContent.Parent.CanvasPosition = Vector2.new(0, self.outputContent.AbsoluteSize.Y)
+            self.outputContent.Parent.CanvasPosition = Vector2.new(
+                0, self.outputContent.AbsoluteSize.Y
+            )
         end)
     end
 }
 
 --- ==== INITIALIZATION ==== ---
 MainUI:init()
-Logger:add("Zeta Deobfuscator started", "INFO")
+Logger:add("Zeta Deobfuscator started successfully", "INFO")
